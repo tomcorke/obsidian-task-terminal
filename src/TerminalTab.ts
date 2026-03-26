@@ -79,6 +79,9 @@ export class TerminalTab {
   private _recentCleanLines: string[] = [];
   private _stateTimer: ReturnType<typeof setInterval> | null = null;
   private _isClaudeSession = false;
+  /** Suppress "active" detection until this timestamp (ms). Used after reload
+   *  to prevent stale xterm buffer content from triggering false active state. */
+  private _suppressActiveUntil = 0;
 
   constructor(
     private parentEl: HTMLElement,
@@ -460,7 +463,10 @@ export class TerminalTab {
       containerEl: stored.containerEl,
     };
 
-    // Resume state tracking for Claude sessions
+    // Resume state tracking for Claude sessions.
+    // Suppress "active" detection for 5s to prevent stale xterm buffer
+    // content from causing a false active flash on all cards after reload.
+    tab._suppressActiveUntil = Date.now() + 5000;
     tab.startStateTracking();
 
     return tab;
@@ -545,7 +551,9 @@ export class TerminalTab {
     this._isClaudeSession = this.detectClaudeLabel();
     if (!this._isClaudeSession) return;
 
-    this._claudeState = "active"; // Assume active on spawn
+    // On fresh spawn, assume active. After reload, start as idle to avoid
+    // false active flash from stale buffer content.
+    this._claudeState = this._suppressActiveUntil > 0 ? "idle" : "active";
     this._lastOutputTime = Date.now();
     if (!this._recentCleanLines) this._recentCleanLines = [];
 
@@ -636,8 +644,17 @@ export class TerminalTab {
     );
 
     if (hasActiveIndicator) {
-      this._setClaudeState("active");
+      // During post-reload grace period, treat "active" as "idle" to prevent
+      // stale buffer content from triggering false active indicators.
+      if (Date.now() < this._suppressActiveUntil) {
+        this._setClaudeState("idle");
+      } else {
+        this._setClaudeState("active");
+      }
     } else {
+      // Real output clears the suppression early - if the screen no longer
+      // shows active indicators, the buffer has genuinely updated.
+      this._suppressActiveUntil = 0;
       this._setClaudeState("idle");
     }
   }
