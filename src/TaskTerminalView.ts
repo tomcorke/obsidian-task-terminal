@@ -105,9 +105,14 @@ export class TaskTerminalView extends ItemView {
       this.app,
       this.parser,
       this.mover,
+      this.plugin.taskOrder,
       (task) => {
         this.taskDetail.setTask(task);
         this.terminalPanel.setTask(task);
+      },
+      (order) => {
+        this.plugin.taskOrder = order;
+        this.plugin.saveTaskOrder();
       }
     );
 

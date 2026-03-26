@@ -6,8 +6,12 @@ import {
 } from "./types";
 import { TaskTerminalView } from "./TaskTerminalView";
 
+/** Per-section ordered list of task paths. Paths not in the list go to the end (default sort). */
+export type TaskOrder = Record<string, string[]>;
+
 export default class TaskTerminalPlugin extends Plugin {
   settings: TaskTerminalSettings = DEFAULT_SETTINGS;
+  taskOrder: TaskOrder = {};
 
   async onload(): Promise<void> {
     await this.loadSettings();
@@ -51,15 +55,17 @@ export default class TaskTerminalPlugin extends Plugin {
   }
 
   async loadSettings(): Promise<void> {
-    this.settings = Object.assign(
-      {},
-      DEFAULT_SETTINGS,
-      await this.loadData()
-    );
+    const data = (await this.loadData()) || {};
+    this.settings = Object.assign({}, DEFAULT_SETTINGS, data);
+    this.taskOrder = data.taskOrder || {};
   }
 
   async saveSettings(): Promise<void> {
-    await this.saveData(this.settings);
+    await this.saveData({ ...this.settings, taskOrder: this.taskOrder });
+  }
+
+  async saveTaskOrder(): Promise<void> {
+    await this.saveData({ ...this.settings, taskOrder: this.taskOrder });
   }
 }
 
