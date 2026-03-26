@@ -83,6 +83,7 @@ export class ContextMenu {
 
     // Delay listener attachment so the triggering contextmenu event doesn't immediately dismiss
     requestAnimationFrame(() => {
+      document.addEventListener("mousedown", onClickOutside, true);
       document.addEventListener("click", onClickOutside, true);
       document.addEventListener("contextmenu", onClickOutside, true);
       document.addEventListener("keydown", onKeydown, true);
@@ -90,6 +91,7 @@ export class ContextMenu {
     });
 
     this.cleanup = () => {
+      document.removeEventListener("mousedown", onClickOutside, true);
       document.removeEventListener("click", onClickOutside, true);
       document.removeEventListener("contextmenu", onClickOutside, true);
       document.removeEventListener("keydown", onKeydown, true);
