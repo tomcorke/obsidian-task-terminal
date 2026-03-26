@@ -182,6 +182,7 @@ export class TerminalPanel {
     const taskPath = this.activeTask.path;
     const tabs = this.sessions.get(taskPath) || [];
     const cwd = this.settings.defaultTerminalCwd || this.vaultPath;
+    const spawnTime = Date.now();
 
     const tab = new TerminalTab(
       this.terminalWrapperEl,
@@ -198,7 +199,12 @@ export class TerminalPanel {
     };
     tab.onProcessExit = () => {
       const idx = tabs.indexOf(tab);
-      if (idx !== -1) this.closeTab(idx);
+      if (idx === -1) return;
+      // If the process exited within 3 seconds, it likely errored -
+      // keep the tab open so the user can see the error message.
+      const lived = Date.now() - spawnTime;
+      if (lived < 3000) return;
+      this.closeTab(idx);
     };
     tab.onStateChange = (state) => {
       this.onClaudeStateChange?.(taskPath, this.getClaudeState(taskPath));
@@ -839,17 +845,30 @@ export class TerminalPanel {
       this.setTask(task);
     }
 
-    const sessionId = crypto.randomUUID();
     const tabs = this.sessions.get(task.path) || [];
     this.createTerminalWithArgs(
-      [...this.getClaudeBaseArgs(), "--resume", persisted.claudeSessionId, "--session-id", sessionId, "--name", task.title],
-      `Agent ${tabs.length + 1} (resumed)`,
-      sessionId
+      [...this.getClaudeBaseArgs(), "--resume", persisted.claudeSessionId, "--name", task.title],
+      persisted.label || `Agent ${tabs.length + 1}`,
+      persisted.claudeSessionId
     );
 
-    // Remove this persisted session since it's been resumed
-    this.persistedSessions = this.persistedSessions.filter(s => s !== persisted);
-    this.onPersistRequest?.();
+    // Remove the persisted session after a grace period - if the process
+    // exits immediately (bad args, missing session), the tab's onProcessExit
+    // won't auto-close within the grace window, so the user sees the error
+    // and the persisted entry is preserved for retry.
+    const persistedRef = persisted;
+    setTimeout(() => {
+      // Only remove if the tab is still alive (process didn't exit immediately)
+      const currentTabs = this.sessions.get(task.path) || [];
+      const stillAlive = currentTabs.some(
+        t => t.claudeSessionId === persistedRef.claudeSessionId && t.session.process && !t.session.process.killed
+      );
+      if (stillAlive) {
+        this.persistedSessions = this.persistedSessions.filter(s => s !== persistedRef);
+        this.onPersistRequest?.();
+      }
+    }, 5000);
+
     this.onSessionChange?.();
   }
 
