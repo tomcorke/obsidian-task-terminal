@@ -658,6 +658,27 @@
   text-overflow: ellipsis;
 }
 
+/* Tab waiting state - pulsing amber gradient on right edge */
+.terminal-tab.tab-claude-waiting {
+  position: relative;
+  overflow: hidden;
+  opacity: 1;
+}
+
+.terminal-tab.tab-claude-waiting::after {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 50%;
+  background: linear-gradient(to right, transparent, rgba(245, 158, 11, 0.5));
+  animation: waiting-glow 2s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
+  border-radius: 0 4px 0 0;
+}
+
 .terminal-tab:not(.active) {
   opacity: 0.6;
 }

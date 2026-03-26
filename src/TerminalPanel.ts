@@ -32,6 +32,7 @@ export class TerminalPanel {
   private vaultPath: string;
   private persistedSessions: PersistedSession[] = [];
   private dragSourceIndex: number | null = null;
+  private lastActiveTab: Map<string, number> = new Map();
   onSessionChange?: () => void;
   onClaudeStateChange?: (taskPath: string, state: ClaudeState) => void;
   onPersistRequest?: () => void;
@@ -76,6 +77,7 @@ export class TerminalPanel {
           };
           tab.onStateChange = () => {
             this.onClaudeStateChange?.(taskPath, this.getClaudeState(taskPath));
+            this.updateTabStateClasses();
           };
           tab.hide();
           tabs.push(tab);
@@ -99,6 +101,11 @@ export class TerminalPanel {
   }
 
   setTask(task: TaskFile | null): void {
+    // Save current active tab index before switching away
+    if (this.activeTask) {
+      this.lastActiveTab.set(this.activeTask.path, this.activeTabIndex);
+    }
+
     // Hide all current terminals
     this.hideAllTerminals();
 
@@ -125,9 +132,16 @@ export class TerminalPanel {
     const tabs = this.sessions.get(task.path) || [];
     if (tabs.length > 0) {
       // Restore recovered tab index if this is a reload re-selection
-      const targetIdx = (this.recoveredTabIndex > 0 && this.recoveredTabIndex < tabs.length)
-        ? this.recoveredTabIndex : 0;
-      this.recoveredTabIndex = 0;
+      let targetIdx = 0;
+      if (this.recoveredTabIndex > 0 && this.recoveredTabIndex < tabs.length) {
+        targetIdx = this.recoveredTabIndex;
+        this.recoveredTabIndex = 0;
+      } else {
+        const remembered = this.lastActiveTab.get(task.path);
+        if (remembered !== undefined && remembered < tabs.length) {
+          targetIdx = remembered;
+        }
+      }
       tabs[targetIdx].show();
       this.activeTabIndex = targetIdx;
     }
@@ -163,6 +177,7 @@ export class TerminalPanel {
     };
     tab.onStateChange = (state) => {
       this.onClaudeStateChange?.(taskPath, this.getClaudeState(taskPath));
+      this.updateTabStateClasses();
     };
 
     tabs.push(tab);
@@ -209,6 +224,7 @@ export class TerminalPanel {
     };
     tab.onStateChange = (state) => {
       this.onClaudeStateChange?.(taskPath, this.getClaudeState(taskPath));
+      this.updateTabStateClasses();
     };
 
     tabs.push(tab);
@@ -301,6 +317,12 @@ export class TerminalPanel {
       const tabEl = tabListEl.createDiv({ cls: "terminal-tab" });
       const isActive = i === this.activeTabIndex;
       if (isActive) tabEl.addClass("active");
+
+      // Add Claude state class for visual indicators
+      if (tabs[i].isClaudeSession) {
+        const state = tabs[i].claudeState;
+        if (state !== "inactive") tabEl.addClass(`tab-claude-${state}`);
+      }
 
       // Drag-and-drop reordering
       tabEl.draggable = true;
@@ -471,6 +493,22 @@ export class TerminalPanel {
     taskBtn.addEventListener("click", () => {
       this.spawnTaskAgent();
     });
+  }
+
+  /** Update tab element state classes without full re-render (avoids flicker). */
+  private updateTabStateClasses(): void {
+    if (!this.activeTask) return;
+    const tabs = this.sessions.get(this.activeTask.path) || [];
+    const tabEls = this.tabBarEl.querySelectorAll(".terminal-tab");
+    const stateClasses = ["tab-claude-waiting", "tab-claude-active", "tab-claude-idle"];
+    for (let i = 0; i < tabs.length && i < tabEls.length; i++) {
+      const el = tabEls[i] as HTMLElement;
+      stateClasses.forEach(cls => el.removeClass(cls));
+      if (tabs[i].isClaudeSession) {
+        const state = tabs[i].claudeState;
+        if (state !== "inactive") el.addClass(`tab-claude-${state}`);
+      }
+    }
   }
 
   private getClaudeBaseArgs(): string[] {
@@ -713,6 +751,7 @@ export class TerminalPanel {
     };
     newTab.onStateChange = () => {
       this.onClaudeStateChange?.(task.path, this.getClaudeState(task.path));
+      this.updateTabStateClasses();
     };
 
     // Insert at the same position
