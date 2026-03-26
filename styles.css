@@ -451,10 +451,11 @@
   border-radius: 8px;
   color: white;
   padding: 0 4px;
+  transition: transform 0.15s ease;
 }
 
 .task-card:hover .task-card-session-badge {
-  right: 0;
+  transform: translateX(-24px);
 }
 
 .task-card-session-badge.badge-claude {
