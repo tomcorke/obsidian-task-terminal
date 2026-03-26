@@ -1,4 +1,5 @@
 import type { TaskFile, TaskTerminalSettings, ClaudeState } from "./types";
+import { KANBAN_COLUMNS, COLUMN_LABELS } from "./types";
 import { TerminalTab } from "./TerminalTab";
 import { SessionStore, type PersistedSession } from "./SessionStore";
 import { ContextMenu, type MenuItem } from "./ContextMenu";
@@ -755,13 +756,25 @@ export class TerminalPanel {
     const currentPath = this.activeTask.path;
 
     const tasks = await this.getAllTasks();
-    const otherTasks = tasks.filter(t => t.path !== currentPath);
+    // Exclude current task and archived/abandoned tasks
+    const excluded: Set<string> = new Set(["done", "abandoned"]);
+    const otherTasks = tasks.filter(t => t.path !== currentPath && !excluded.has(t.state));
     if (otherTasks.length === 0) return;
 
-    const items: MenuItem[] = otherTasks.map(task => ({
-      label: task.title,
-      action: () => this.moveTabToTask(tabIndex, task),
-    }));
+    // Group by state in kanban column order
+    const items: MenuItem[] = [];
+    const columnOrder = KANBAN_COLUMNS.filter(c => !excluded.has(c));
+    for (const col of columnOrder) {
+      const group = otherTasks.filter(t => t.state === col);
+      if (group.length === 0) continue;
+      items.push({ header: COLUMN_LABELS[col] });
+      for (const task of group) {
+        items.push({
+          label: task.title,
+          action: () => this.moveTabToTask(tabIndex, task),
+        });
+      }
+    }
 
     new ContextMenu(items, e.clientX, e.clientY, { title: "Move to task" });
   }

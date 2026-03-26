@@ -869,6 +869,8 @@
   position: fixed;
   z-index: 10000;
   min-width: 180px;
+  max-height: 400px;
+  overflow-y: auto;
   background: var(--background-secondary);
   border: 1px solid var(--background-modifier-border);
   border-radius: 6px;
@@ -906,6 +908,15 @@
   height: 1px;
   background: var(--background-modifier-border);
   margin: 4px 0;
+}
+
+.task-context-menu-header {
+  padding: 6px 14px 2px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
 }
 
 /* === Tab Context Menu === */

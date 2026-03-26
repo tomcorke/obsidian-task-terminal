@@ -622,22 +622,23 @@ export class TerminalTab {
     // Need screen content for idle/active detection
     if (screenLines.length === 0) return;
 
-    // Check if Claude is at its input prompt (idle).
-    // Claude Code shows a ">" prompt when waiting for user input.
-    // The prompt appears as the last content line before the status bar.
-    // Also check for shell prompts ($, %) for non-Claude terminals that
-    // got relabeled.
-    const lastLines = screenLines.slice(-5);
-    const atPrompt = lastLines.some(line =>
-      /^\s*[>❯]\s*$/.test(line) ||       // Claude's ">" or "❯" prompt
-      /^\s*\$\s*$/.test(line) ||          // shell $ prompt
-      /^\s*%\s*$/.test(line)              // zsh % prompt
+    // Claude's status bar always shows "❯" even when actively working.
+    // To distinguish idle from active, look for structural indicators in the
+    // last few lines only (near the status bar). Checking the full screen would
+    // false-positive on Claude's own response text containing these characters.
+    //   ✻ <text>… - spinner line with ellipsis means work in progress
+    //   ⎿  <text>… - tool output with ellipsis means tool still running
+    // When finished, ✻ shows past tense without ellipsis (e.g. "Brewed for 50s").
+    const tail = screenLines.slice(-6);
+    const hasActiveIndicator = tail.some(line =>
+      /^\s*\u2733.*\u2026/.test(line) ||    // ✻ ... … (spinner with ellipsis = in progress)
+      /^\s*⎿\s+.*\u2026/.test(line)         // ⎿  ...… (tool output with ellipsis = running)
     );
 
-    if (atPrompt) {
-      this._setClaudeState("idle");
-    } else {
+    if (hasActiveIndicator) {
       this._setClaudeState("active");
+    } else {
+      this._setClaudeState("idle");
     }
   }
 

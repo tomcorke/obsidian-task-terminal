@@ -9,10 +9,18 @@ export interface MenuSeparator {
   separator: true;
 }
 
-export type MenuItem = MenuItemDef | MenuSeparator;
+export interface MenuHeader {
+  header: string;
+}
+
+export type MenuItem = MenuItemDef | MenuSeparator | MenuHeader;
 
 function isSeparator(item: MenuItem): item is MenuSeparator {
   return "separator" in item;
+}
+
+function isHeader(item: MenuItem): item is MenuHeader {
+  return "header" in item;
 }
 
 export interface ContextMenuOptions {
@@ -35,6 +43,11 @@ export class ContextMenu {
     for (const item of items) {
       if (isSeparator(item)) {
         this.el.createDiv({ cls: "task-context-menu-sep" });
+        continue;
+      }
+      if (isHeader(item)) {
+        const h = this.el.createDiv({ cls: "task-context-menu-header" });
+        h.textContent = item.header;
         continue;
       }
       const row = this.el.createDiv({ cls: "task-context-menu-item" });
