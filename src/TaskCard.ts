@@ -105,4 +105,8 @@ export class TaskCard {
   getPath(): string {
     return this.task.path;
   }
+
+  getTitle(): string {
+    return this.task.title;
+  }
 }

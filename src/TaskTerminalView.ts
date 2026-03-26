@@ -2,16 +2,20 @@ import { ItemView, type WorkspaceLeaf } from "obsidian";
 import { VIEW_TYPE_TASK_TERMINAL, type TaskTerminalSettings } from "./types";
 import { TaskParser } from "./TaskParser";
 import { TaskMover } from "./TaskMover";
-import { KanbanBoard } from "./KanbanBoard";
+import { TaskListPanel } from "./TaskListPanel";
+import { TaskDetailPanel } from "./TaskDetailPanel";
+import { PromptBox } from "./PromptBox";
 import { TerminalPanel } from "./TerminalPanel";
 import type TaskTerminalPlugin from "./main";
 
 export class TaskTerminalView extends ItemView {
-  private kanban: KanbanBoard;
+  private taskList: TaskListPanel;
+  private taskDetail: TaskDetailPanel;
   private terminalPanel: TerminalPanel;
   private parser: TaskParser;
   private mover: TaskMover;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
+  private filterTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(leaf: WorkspaceLeaf, private plugin: TaskTerminalPlugin) {
     super(leaf);
@@ -20,8 +24,9 @@ export class TaskTerminalView extends ItemView {
     this.parser = new TaskParser(this.app, settings.taskBasePath);
     this.mover = new TaskMover(this.app, settings.taskBasePath);
 
-    // These get initialized in onOpen
-    this.kanban = null!;
+    // Initialized in onOpen
+    this.taskList = null!;
+    this.taskDetail = null!;
     this.terminalPanel = null!;
   }
 
@@ -42,50 +47,81 @@ export class TaskTerminalView extends ItemView {
     container.empty();
     container.addClass("task-terminal-container");
 
-    // Left panel - kanban
-    const kanbanEl = container.createDiv({ cls: "task-terminal-kanban" });
+    // === LEFT PANEL (task list + prompt + filter) ===
+    const leftPanel = container.createDiv({ cls: "task-terminal-left-panel" });
 
-    // Resize divider
-    const divider = container.createDiv({ cls: "task-terminal-divider" });
-    this.setupResizer(divider, kanbanEl);
+    // Top bar: prompt box + filter
+    const topBar = leftPanel.createDiv({ cls: "task-terminal-top-bar" });
 
-    // Right panel - terminals
-    const terminalsEl = container.createDiv({ cls: "task-terminal-terminals" });
+    // Prompt box
+    const promptContainer = topBar.createDiv({ cls: "prompt-box-container" });
+    new PromptBox(promptContainer, this.plugin.settings);
 
-    // Resolve vault path for terminal CWD - expand ~ to home dir
+    // Filter input
+    const filterWrap = topBar.createDiv({ cls: "task-filter-wrap" });
+    const filterInput = filterWrap.createEl("input", {
+      cls: "task-filter-input",
+      attr: { type: "text", placeholder: "Filter tasks..." },
+    });
+    filterInput.addEventListener("input", () => {
+      if (this.filterTimer) clearTimeout(this.filterTimer);
+      this.filterTimer = setTimeout(() => {
+        this.taskList.setFilter(filterInput.value);
+      }, 100);
+    });
+
+    // Task list
+    const taskListEl = leftPanel.createDiv({ cls: "task-list-container" });
+
+    // === DIVIDER 1 ===
+    const divider1 = container.createDiv({ cls: "task-terminal-divider" });
+
+    // === MIDDLE PANEL (task detail) ===
+    const middlePanel = container.createDiv({ cls: "task-terminal-middle-panel" });
+
+    // === DIVIDER 2 ===
+    const divider2 = container.createDiv({ cls: "task-terminal-divider" });
+
+    // === RIGHT PANEL (terminals) ===
+    const rightPanel = container.createDiv({ cls: "task-terminal-right-panel" });
+
+    // Resolve vault path
     const adapter = this.app.vault.adapter as any;
     let vaultPath: string = adapter.basePath || adapter.getBasePath?.() || "";
     const home = process.env.HOME || process.env.USERPROFILE || "";
     if (vaultPath.startsWith("~/") || vaultPath === "~") {
       vaultPath = home + vaultPath.slice(1);
     } else if (!vaultPath.startsWith("/") && home) {
-      // Relative path - resolve against home
       vaultPath = home + "/" + vaultPath;
     }
-    console.log("[task-terminal] Resolved vault path:", vaultPath);
 
     // Initialize components
-    this.terminalPanel = new TerminalPanel(
-      terminalsEl,
-      this.plugin.settings,
-      vaultPath
-    );
+    this.terminalPanel = new TerminalPanel(rightPanel, this.plugin.settings, vaultPath);
 
-    this.kanban = new KanbanBoard(
-      kanbanEl,
+    this.taskDetail = new TaskDetailPanel(middlePanel, this.app);
+
+    this.taskList = new TaskListPanel(
+      taskListEl,
       this.app,
       this.parser,
       this.mover,
-      (task) => this.terminalPanel.setTask(task)
+      (task) => {
+        this.taskDetail.setTask(task);
+        this.terminalPanel.setTask(task);
+      }
     );
 
-    await this.kanban.render();
+    await this.taskList.render();
 
-    // Register vault events for live sync
+    // Setup resizers
+    this.setupResizer(divider1, leftPanel, 200);
+    this.setupResizer(divider2, middlePanel, 250);
+
+    // Vault events
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
         if (this.parser.isTaskFile(file.path)) {
-          this.debouncedRefresh();
+          this.debouncedRefresh(file.path);
         }
       })
     );
@@ -108,31 +144,37 @@ export class TaskTerminalView extends ItemView {
 
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
-        if (
-          this.parser.isTaskFile(file.path) ||
-          this.parser.isTaskFile(oldPath)
-        ) {
+        if (this.parser.isTaskFile(file.path) || this.parser.isTaskFile(oldPath)) {
           this.debouncedRefresh();
         }
       })
     );
   }
 
-  private debouncedRefresh(): void {
+  private debouncedRefresh(modifiedPath?: string): void {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
-    this.debounceTimer = setTimeout(() => {
-      this.kanban.render();
+    this.debounceTimer = setTimeout(async () => {
+      await this.taskList.render();
+      if (modifiedPath) {
+        await this.taskDetail.refreshIfShowing(modifiedPath);
+      }
     }, 150);
   }
 
-  private setupResizer(divider: HTMLElement, leftPanel: HTMLElement): void {
+  private setupResizer(
+    divider: HTMLElement,
+    targetPanel: HTMLElement,
+    minWidth: number
+  ): void {
     let startX: number;
     let startWidth: number;
 
     const onMouseMove = (e: MouseEvent) => {
       const delta = e.clientX - startX;
-      const newWidth = Math.max(250, Math.min(startWidth + delta, window.innerWidth - 350));
-      leftPanel.style.flexBasis = `${newWidth}px`;
+      const newWidth = Math.max(minWidth, startWidth + delta);
+      targetPanel.style.flexBasis = `${newWidth}px`;
+      targetPanel.style.flexGrow = "0";
+      targetPanel.style.flexShrink = "0";
     };
 
     const onMouseUp = () => {
@@ -146,7 +188,7 @@ export class TaskTerminalView extends ItemView {
     divider.addEventListener("mousedown", (e) => {
       e.preventDefault();
       startX = e.clientX;
-      startWidth = leftPanel.getBoundingClientRect().width;
+      startWidth = targetPanel.getBoundingClientRect().width;
       divider.addClass("dragging");
       document.body.style.cursor = "col-resize";
       document.body.style.userSelect = "none";
@@ -157,6 +199,8 @@ export class TaskTerminalView extends ItemView {
 
   async onClose(): Promise<void> {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
+    if (this.filterTimer) clearTimeout(this.filterTimer);
+    this.taskDetail?.unload();
     this.terminalPanel?.disposeAll();
   }
 }

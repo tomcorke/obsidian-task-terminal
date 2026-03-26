@@ -64,8 +64,8 @@ export const COLUMN_LABELS: Record<KanbanColumn, string> = {
 
 export const KANBAN_COLUMNS: KanbanColumn[] = [
   "priority",
-  "todo",
   "active",
+  "todo",
   "done",
 ];
 
