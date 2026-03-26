@@ -68,7 +68,11 @@ export class TaskListPanel {
       const orderedTasks = this.applyCustomOrder(groups[col], col);
 
       for (const task of orderedTasks) {
-        const card = new TaskCard(task, (t) => this.selectTask(t));
+        const card = new TaskCard(
+          task,
+          (t) => this.selectTask(t),
+          (t) => this.moveToTop(t.path, col)
+        );
         this.cards.set(task.path, card);
         cardsEl.appendChild(card.el);
       }
@@ -283,6 +287,23 @@ export class TaskListPanel {
     this.taskOrder[column] = filtered;
     this.onOrderChange(this.taskOrder);
 
+    this.render();
+  }
+
+  private moveToTop(taskPath: string, column: KanbanColumn): void {
+    const cardsEl = this.sectionCardsEls.get(column);
+    if (!cardsEl) return;
+
+    // Get current order of paths in this section
+    const currentPaths = Array.from(cardsEl.querySelectorAll<HTMLElement>(".task-card"))
+      .map(el => el.dataset.path!)
+      .filter(p => p !== taskPath);
+
+    // Insert at position 0
+    currentPaths.unshift(taskPath);
+
+    this.taskOrder[column] = currentPaths;
+    this.onOrderChange(this.taskOrder);
     this.render();
   }
 

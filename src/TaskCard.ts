@@ -13,7 +13,8 @@ export class TaskCard {
 
   constructor(
     private task: TaskFile,
-    private onSelect: (task: TaskFile) => void
+    private onSelect: (task: TaskFile) => void,
+    private onMoveToTop?: (task: TaskFile) => void
   ) {
     this.el = this.render();
   }
@@ -24,9 +25,20 @@ export class TaskCard {
     card.dataset.path = this.task.path;
     card.draggable = true;
 
-    // Title
-    const title = card.createDiv({ cls: "task-card-title" });
+    // Title row
+    const titleRow = card.createDiv({ cls: "task-card-title-row" });
+    const title = titleRow.createDiv({ cls: "task-card-title" });
     title.textContent = this.task.title;
+
+    // Move-to-top button (visible on hover)
+    if (this.onMoveToTop) {
+      const moveBtn = titleRow.createDiv({ cls: "task-card-move-top", attr: { title: "Move to top" } });
+      moveBtn.textContent = "\u2191";
+      moveBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.onMoveToTop?.(this.task);
+      });
+    }
 
     // Meta row
     const meta = card.createDiv({ cls: "task-card-meta" });
