@@ -32,6 +32,10 @@ const ctx = await esbuild.context({
   external: [
     "obsidian",
     "electron",
+    "child_process",
+    "fs",
+    "path",
+    "os",
     "@codemirror/autocomplete",
     "@codemirror/collab",
     "@codemirror/commands",

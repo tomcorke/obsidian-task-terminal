@@ -263,11 +263,22 @@
   color: white;
 }
 
+.terminal-tab-btn.task-agent-btn {
+  color: #30a46c;
+  border-color: #30a46c;
+}
+
+.terminal-tab-btn.task-agent-btn:hover {
+  background: #30a46c;
+  color: white;
+}
+
 /* Terminal container */
 .terminal-wrapper {
   flex: 1;
   overflow: hidden;
   position: relative;
+  min-height: 200px;
 }
 
 .terminal-instance {
@@ -276,6 +287,21 @@
   position: absolute;
   top: 0;
   left: 0;
+  padding: 4px;
+  box-sizing: border-box;
+}
+
+.terminal-instance .xterm {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+.terminal-instance .xterm-screen {
+  width: 100% !important;
+}
+
+.terminal-instance .xterm-viewport {
+  overflow-y: auto !important;
 }
 
 .terminal-instance.hidden {

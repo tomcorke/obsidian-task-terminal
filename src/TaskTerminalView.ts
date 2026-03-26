@@ -52,9 +52,17 @@ export class TaskTerminalView extends ItemView {
     // Right panel - terminals
     const terminalsEl = container.createDiv({ cls: "task-terminal-terminals" });
 
-    // Resolve vault path for terminal CWD
+    // Resolve vault path for terminal CWD - expand ~ to home dir
     const adapter = this.app.vault.adapter as any;
-    const vaultPath: string = adapter.basePath || adapter.getBasePath?.() || "";
+    let vaultPath: string = adapter.basePath || adapter.getBasePath?.() || "";
+    const home = process.env.HOME || process.env.USERPROFILE || "";
+    if (vaultPath.startsWith("~/") || vaultPath === "~") {
+      vaultPath = home + vaultPath.slice(1);
+    } else if (!vaultPath.startsWith("/") && home) {
+      // Relative path - resolve against home
+      vaultPath = home + "/" + vaultPath;
+    }
+    console.log("[task-terminal] Resolved vault path:", vaultPath);
 
     // Initialize components
     this.terminalPanel = new TerminalPanel(

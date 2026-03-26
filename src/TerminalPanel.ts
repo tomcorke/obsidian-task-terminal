@@ -57,6 +57,7 @@ export class TerminalPanel {
     this.placeholderEl.style.display = "none";
     this.tabBarEl.style.display = "flex";
     this.taskHeaderEl.style.display = "flex";
+    this.terminalWrapperEl.style.display = "block";
 
     // Update header
     this.taskHeaderEl.empty();
@@ -72,14 +73,13 @@ export class TerminalPanel {
     this.renderTabBar();
   }
 
-  private createTerminal(preCommand?: string): void {
+  private createTerminal(preCommand?: string, customLabel?: string): void {
     if (!this.activeTask) return;
 
     const taskPath = this.activeTask.path;
     const tabs = this.sessions.get(taskPath) || [];
-    const label = preCommand?.startsWith("claude")
-      ? `Claude ${tabs.length + 1}`
-      : `Shell ${tabs.length + 1}`;
+    const label = customLabel
+      || (preCommand?.startsWith("claude") ? `Claude ${tabs.length + 1}` : `Shell ${tabs.length + 1}`);
 
     const cwd =
       this.settings.defaultTerminalCwd || this.vaultPath;
@@ -101,6 +101,32 @@ export class TerminalPanel {
     tab.show();
     this.activeTabIndex = tabs.length - 1;
 
+    this.renderTabBar();
+  }
+
+  private createTerminalWithArgs(command: string[], label: string): void {
+    if (!this.activeTask) return;
+
+    const taskPath = this.activeTask.path;
+    const tabs = this.sessions.get(taskPath) || [];
+    const cwd = this.settings.defaultTerminalCwd || this.vaultPath;
+
+    const tab = new TerminalTab(
+      this.terminalWrapperEl,
+      this.settings.defaultShell,
+      cwd,
+      label,
+      taskPath,
+      undefined,
+      command
+    );
+
+    tabs.push(tab);
+    this.sessions.set(taskPath, tabs);
+
+    this.hideAllTerminals();
+    tab.show();
+    this.activeTabIndex = tabs.length - 1;
     this.renderTabBar();
   }
 
@@ -172,14 +198,49 @@ export class TerminalPanel {
     });
     newBtn.addEventListener("click", () => this.createTerminal());
 
+    // Build base claude args with plugin dirs
+    const pluginBase = (process.env.HOME || "") + "/working/claude-sandbox/plugins";
+    const claudeBaseArgs = [
+      this.settings.claudeCommand,
+      "--dangerously-skip-permissions",
+      "--plugin-dir", pluginBase + "/tc-services",
+      "--plugin-dir", pluginBase + "/tc-tools",
+      "--plugin-dir", pluginBase + "/tc-tasks",
+      "--plugin-dir", pluginBase + "/tc-core",
+    ];
+
     // Launch Claude button
     const claudeBtn = this.tabBarEl.createDiv({
       cls: "terminal-tab-btn claude-btn",
       text: "+ Claude",
     });
-    claudeBtn.addEventListener("click", () =>
-      this.createTerminal(this.settings.claudeCommand)
-    );
+    claudeBtn.addEventListener("click", () => {
+      const tabs = this.sessions.get(this.activeTask!.path) || [];
+      this.createTerminalWithArgs(
+        [...claudeBaseArgs],
+        `Claude ${tabs.length + 1}`
+      );
+    });
+
+    // Launch Claude with task-agent prompt
+    const taskBtn = this.tabBarEl.createDiv({
+      cls: "terminal-tab-btn claude-btn task-agent-btn",
+      text: "+ Task Agent",
+    });
+    taskBtn.addEventListener("click", () => {
+      if (!this.activeTask) return;
+      const home = process.env.HOME || process.env.USERPROFILE || "";
+      let fullPath = this.vaultPath + "/" + this.activeTask.path;
+      if (fullPath.startsWith("~/")) {
+        fullPath = home + fullPath.slice(1);
+      }
+      const prompt = `/tc-tasks:task-agent ${fullPath}`;
+      const tabs = this.sessions.get(this.activeTask.path) || [];
+      this.createTerminalWithArgs(
+        [...claudeBaseArgs, prompt],
+        `Agent ${tabs.length + 1}`
+      );
+    });
   }
 
   disposeAll(): void {
