@@ -725,19 +725,30 @@ export class TaskListPanel {
     }
   }
 
-  /** Update the Claude state CSS class on a task card. */
+  /** Update the Claude state CSS class on a task card.
+   *  Skips DOM mutation when the correct class is already applied,
+   *  preserving in-progress CSS animations (e.g. idle staleness arc). */
   setClaudeState(taskPath: string, state: ClaudeState): void {
     const card = this.cards.get(taskPath);
     if (!card) return;
 
     const el = card.el;
+    const targetClass = state === "waiting" ? "claude-waiting"
+      : state === "idle" ? "claude-idle"
+      : state === "active" ? "claude-active"
+      : null;
+
+    // Already has the correct class - no-op to preserve CSS animations
+    if (targetClass && el.hasClass(targetClass)) return;
+
     el.removeClass("claude-active", "claude-idle", "claude-waiting");
-    if (state === "waiting") {
-      el.addClass("claude-waiting");
-    } else if (state === "idle") {
-      el.addClass("claude-idle");
-    } else if (state === "active") {
-      el.addClass("claude-active");
+    if (targetClass) el.addClass(targetClass);
+  }
+
+  /** Update session badges on all cards in-place (no re-render). */
+  updateSessionBadges(): void {
+    for (const card of this.cards.values()) {
+      card.updateSessionBadge();
     }
   }
 }

@@ -251,4 +251,37 @@ export class TaskCard {
   getTitle(): string {
     return this.task.title;
   }
+
+  /** Update session badge in-place without re-rendering the card. */
+  updateSessionBadge(): void {
+    if (!this.getSessionCount) return;
+    const counts = this.getSessionCount(this.task.path);
+    const total = counts.shells + counts.claudes;
+
+    if (total > 0) {
+      if (!this.sessionBadge) {
+        // Need to create badge - find or create the actions container
+        const actions = this.el.querySelector(".task-card-actions") as HTMLElement;
+        if (!actions) return;
+        const badge = document.createElement("div");
+        badge.addClass("task-card-session-badge");
+        // Insert before other action buttons
+        actions.insertBefore(badge, actions.firstChild);
+        this.sessionBadge = badge;
+      }
+      this.sessionBadge.textContent = String(total);
+      this.sessionBadge.title = `${counts.claudes} Claude, ${counts.shells} Shell`;
+      this.sessionBadge.removeClass("badge-claude", "badge-shell", "badge-mixed");
+      if (counts.claudes > 0 && counts.shells === 0) {
+        this.sessionBadge.addClass("badge-claude");
+      } else if (counts.shells > 0 && counts.claudes === 0) {
+        this.sessionBadge.addClass("badge-shell");
+      } else {
+        this.sessionBadge.addClass("badge-mixed");
+      }
+    } else if (this.sessionBadge) {
+      this.sessionBadge.remove();
+      this.sessionBadge = null;
+    }
+  }
 }

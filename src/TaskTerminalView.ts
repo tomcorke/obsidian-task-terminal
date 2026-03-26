@@ -100,7 +100,8 @@ export class TaskTerminalView extends ItemView {
     // Initialize components
     this.terminalPanel = new TerminalPanel(rightPanel, this.plugin.settings, vaultPath);
     this.terminalPanel.onSessionChange = () => {
-      this.taskList?.render().then(() => this.applyAllClaudeStates());
+      this.taskList?.updateSessionBadges();
+      this.applyAllClaudeStates();
     };
     this.terminalPanel.onClaudeStateChange = (taskPath, state) => {
       this.taskList?.setClaudeState(taskPath, state);

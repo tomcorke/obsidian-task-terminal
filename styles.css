@@ -385,6 +385,7 @@
   margin-bottom: 4px;
   line-height: 1.3;
   flex: 1;
+  padding-right: 18px;
 }
 
 /* Top-right actions container */
@@ -463,6 +464,42 @@
 
 .task-card-session-badge.badge-mixed {
   background: #8b5cf6;
+}
+
+/* Idle: badge desaturates and circular arc depletes over 5 minutes */
+@property --idle-arc {
+  syntax: "<angle>";
+  inherits: false;
+  initial-value: 360deg;
+}
+
+.task-card.claude-idle .task-card-session-badge {
+  position: relative;
+  overflow: visible;
+  animation: badge-desaturate 300s linear forwards;
+}
+
+.task-card.claude-idle .task-card-session-badge::after {
+  content: "";
+  position: absolute;
+  inset: -3px;
+  border-radius: 50%;
+  --idle-arc: 360deg;
+  background: conic-gradient(#60a5fa 0deg, #60a5fa var(--idle-arc), transparent var(--idle-arc));
+  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
+  animation: badge-deplete 300s linear forwards;
+  pointer-events: none;
+}
+
+@keyframes badge-desaturate {
+  from { filter: saturate(1); }
+  to { filter: saturate(0); }
+}
+
+@keyframes badge-deplete {
+  from { --idle-arc: 360deg; }
+  to { --idle-arc: 0deg; }
 }
 
 .task-card-meta {
