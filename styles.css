@@ -1,0 +1,318 @@
+/* Task Terminal Plugin - Obsidian CSS Variables for theme compat */
+
+.task-terminal-container {
+  display: flex;
+  height: 100%;
+  overflow: hidden;
+}
+
+/* Kanban Panel (left) */
+.task-terminal-kanban {
+  flex: 0 0 45%;
+  min-width: 300px;
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+/* Resize divider */
+.task-terminal-divider {
+  width: 5px;
+  cursor: col-resize;
+  background: var(--background-modifier-border);
+  flex-shrink: 0;
+  transition: background 0.15s;
+}
+
+.task-terminal-divider:hover,
+.task-terminal-divider.dragging {
+  background: var(--interactive-accent);
+}
+
+/* Terminal Panel (right) */
+.task-terminal-terminals {
+  flex: 1;
+  min-width: 300px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* Kanban columns */
+.kanban-column {
+  flex: 1;
+  min-width: 140px;
+  display: flex;
+  flex-direction: column;
+  border-radius: 6px;
+  background: var(--background-primary-alt);
+  overflow: hidden;
+}
+
+.kanban-column-header {
+  padding: 8px 10px;
+  font-weight: 600;
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  border-bottom: 2px solid var(--background-modifier-border);
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  flex-shrink: 0;
+}
+
+.kanban-column-header .count {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-muted);
+  background: var(--background-secondary);
+  padding: 1px 6px;
+  border-radius: 8px;
+}
+
+.kanban-column[data-column="priority"] .kanban-column-header {
+  border-bottom-color: #e5484d;
+}
+
+.kanban-column[data-column="todo"] .kanban-column-header {
+  border-bottom-color: var(--text-muted);
+}
+
+.kanban-column[data-column="active"] .kanban-column-header {
+  border-bottom-color: var(--interactive-accent);
+}
+
+.kanban-column[data-column="done"] .kanban-column-header {
+  border-bottom-color: #30a46c;
+}
+
+.kanban-column-cards {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px;
+}
+
+.kanban-column.drag-over {
+  background: var(--background-modifier-hover);
+}
+
+/* Task cards */
+.task-card {
+  padding: 8px 10px;
+  margin: 4px 0;
+  border-radius: 4px;
+  background: var(--background-secondary);
+  cursor: grab;
+  border-left: 3px solid transparent;
+  font-size: 13px;
+  transition: border-color 0.1s, box-shadow 0.1s;
+}
+
+.task-card:hover {
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.15);
+}
+
+.task-card.selected {
+  border-left-color: var(--interactive-accent);
+  background: var(--background-secondary-alt);
+}
+
+.task-card.dragging {
+  opacity: 0.4;
+}
+
+.task-card-title {
+  font-weight: 500;
+  margin-bottom: 4px;
+  line-height: 1.3;
+}
+
+.task-card-meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.task-card-source {
+  font-weight: 600;
+  text-transform: uppercase;
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--background-modifier-border);
+}
+
+.task-card-score {
+  font-variant-numeric: tabular-nums;
+}
+
+.task-card-score.score-high {
+  color: #e5484d;
+  font-weight: 600;
+}
+
+.task-card-score.score-medium {
+  color: #f5a623;
+}
+
+.task-card-score.score-low {
+  color: var(--text-muted);
+}
+
+.agent-badge {
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: #30a46c;
+  color: white;
+  letter-spacing: 0.03em;
+}
+
+.task-card-goal {
+  font-size: 10px;
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--background-modifier-border);
+  color: var(--text-muted);
+  max-width: 100px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Terminal tab bar */
+.terminal-tab-bar {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 4px 8px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  flex-shrink: 0;
+  overflow-x: auto;
+  min-height: 32px;
+}
+
+.terminal-tab {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 10px;
+  cursor: pointer;
+  border-radius: 4px 4px 0 0;
+  font-size: 12px;
+  color: var(--text-muted);
+  background: transparent;
+  white-space: nowrap;
+  border: 1px solid transparent;
+  border-bottom: none;
+}
+
+.terminal-tab:hover {
+  background: var(--background-modifier-hover);
+}
+
+.terminal-tab.active {
+  background: var(--background-primary);
+  color: var(--text-normal);
+  border-color: var(--background-modifier-border);
+}
+
+.terminal-tab-close {
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-muted);
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+.terminal-tab-close:hover {
+  color: var(--text-error);
+  background: var(--background-modifier-hover);
+}
+
+.terminal-tab-btn {
+  padding: 4px 8px;
+  font-size: 12px;
+  cursor: pointer;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-muted);
+  border: 1px dashed var(--background-modifier-border);
+}
+
+.terminal-tab-btn:hover {
+  background: var(--background-modifier-hover);
+  color: var(--text-normal);
+}
+
+.terminal-tab-btn.claude-btn {
+  color: var(--interactive-accent);
+  border-color: var(--interactive-accent);
+}
+
+.terminal-tab-btn.claude-btn:hover {
+  background: var(--interactive-accent);
+  color: white;
+}
+
+/* Terminal container */
+.terminal-wrapper {
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+}
+
+.terminal-instance {
+  width: 100%;
+  height: 100%;
+  position: absolute;
+  top: 0;
+  left: 0;
+}
+
+.terminal-instance.hidden {
+  display: none;
+}
+
+/* Placeholder */
+.terminal-placeholder {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-muted);
+  font-size: 14px;
+  text-align: center;
+  padding: 20px;
+}
+
+.terminal-placeholder-icon {
+  font-size: 48px;
+  margin-bottom: 12px;
+  opacity: 0.3;
+}
+
+/* Task info header in terminal panel */
+.terminal-task-header {
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-muted);
+  border-bottom: 1px solid var(--background-modifier-border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+.terminal-task-header .task-title {
+  font-weight: 500;
+  color: var(--text-normal);
+}

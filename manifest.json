@@ -1,0 +1,9 @@
+{
+  "id": "task-terminal",
+  "name": "Task Terminal",
+  "version": "0.1.0",
+  "minAppVersion": "1.0.0",
+  "description": "Split-view kanban board for task-agent tasks with per-task tabbed terminals for Claude CLI",
+  "author": "Tom Corke",
+  "isDesktopOnly": true
+}
