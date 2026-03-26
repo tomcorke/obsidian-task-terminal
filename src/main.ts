@@ -5,6 +5,7 @@ import {
   DEFAULT_SETTINGS,
 } from "./types";
 import { TaskTerminalView } from "./TaskTerminalView";
+import { TaskParser } from "./TaskParser";
 /** Per-section ordered list of task paths. Paths not in the list go to the end (default sort). */
 export type TaskOrder = Record<string, string[]>;
 
@@ -37,6 +38,16 @@ export default class TaskTerminalPlugin extends Plugin {
     });
 
     this.addSettingTab(new TaskTerminalSettingTab(this.app, this));
+
+    // Backfill UUIDs on task files that don't have one yet (runs after layout is ready)
+    this.app.workspace.onLayoutReady(() => {
+      const parser = new TaskParser(this.app, this.settings.taskBasePath);
+      parser.backfillIds().then((count) => {
+        if (count > 0) {
+          console.log(`[task-terminal] Backfilled UUIDs on ${count} task files`);
+        }
+      });
+    });
   }
 
   async activateView(): Promise<void> {

@@ -2,40 +2,6 @@ import type { TaskFile, TaskTerminalSettings } from "./types";
 import { TerminalTab } from "./TerminalTab";
 import { SessionStore } from "./SessionStore";
 
-/**
- * Resolve a command name to an absolute path. Electron's process.env.PATH
- * may not include shell-profile dirs like ~/.local/bin, so commands like
- * `claude` fail with execvp ENOENT when spawned via the PTY wrapper.
- */
-function resolveCommand(cmd: string): string {
-  if (cmd.startsWith("/")) return cmd;
-  try {
-    const cp = (window.require || require)("child_process") as typeof import("child_process");
-    // Use login shell to resolve the command, picking up profile PATH
-    const result = cp.spawnSync("/bin/zsh", ["-l", "-c", `which ${cmd}`], {
-      timeout: 3000,
-      encoding: "utf-8",
-    });
-    const resolved = result.stdout?.trim();
-    if (resolved && resolved.startsWith("/")) {
-      return resolved;
-    }
-  } catch { /* fall through */ }
-  // Fallback: check common locations
-  const home = process.env.HOME || "";
-  const fs = (window.require || require)("fs") as typeof import("fs");
-  const candidates = [
-    `${home}/.local/bin/${cmd}`,
-    `${home}/.claude/local/${cmd}`,
-    `/usr/local/bin/${cmd}`,
-    `/opt/homebrew/bin/${cmd}`,
-  ];
-  for (const p of candidates) {
-    try { if (fs.existsSync(p)) return p; } catch { /* ignore */ }
-  }
-  return cmd;
-}
-
 /** Claude sparkle logomark as inline SVG */
 function createClaudeLogo(size = 14): SVGSVGElement {
   const svg = document.createElementNS("http://www.w3.org/2000/svg", "svg");
@@ -370,18 +336,6 @@ export class TerminalPanel {
     });
     newBtn.addEventListener("click", () => this.createTerminal());
 
-    // Build base claude args with plugin dirs
-    const pluginBase = (process.env.HOME || "") + "/working/claude-sandbox/plugins";
-    const claudeCmd = resolveCommand(this.settings.claudeCommand);
-    const claudeBaseArgs = [
-      claudeCmd,
-      "--dangerously-skip-permissions",
-      "--plugin-dir", pluginBase + "/tc-services",
-      "--plugin-dir", pluginBase + "/tc-tools",
-      "--plugin-dir", pluginBase + "/tc-tasks",
-      "--plugin-dir", pluginBase + "/tc-core",
-    ];
-
     // Launch Claude button
     const claudeBtn = this.tabBarEl.createDiv({
       cls: "terminal-tab-btn claude-btn",
@@ -391,7 +345,7 @@ export class TerminalPanel {
     claudeBtn.addEventListener("click", () => {
       const tabs = this.sessions.get(this.activeTask!.path) || [];
       this.createTerminalWithArgs(
-        [...claudeBaseArgs],
+        [...this.getClaudeBaseArgs()],
         `Claude ${tabs.length + 1}`
       );
     });
@@ -403,47 +357,76 @@ export class TerminalPanel {
     taskBtn.appendChild(createClaudeLogo());
     taskBtn.appendText("Task Agent");
     taskBtn.addEventListener("click", () => {
-      if (!this.activeTask) return;
-      const task = this.activeTask;
-      const home = process.env.HOME || process.env.USERPROFILE || "";
-      let fullPath = this.vaultPath + "/" + task.path;
-      if (fullPath.startsWith("~/")) {
-        fullPath = home + fullPath.slice(1);
-      }
-
-      // Build lightweight context prompt from parsed task metadata
-      const parts: string[] = [
-        `Task: "${task.title}"`,
-        `State: ${task.state}`,
-        `File: ${fullPath}`,
-      ];
-      if (task.source.type !== "prompt" && task.source.id) {
-        parts.push(`Source: ${task.source.type} ${task.source.id}`);
-      }
-      if (task.source.url) {
-        parts.push(`URL: ${task.source.url}`);
-      }
-      if (task.priority.deadline) {
-        parts.push(`Deadline: ${task.priority.deadline}`);
-      }
-      if (task.priority["has-blocker"]) {
-        parts.push(`BLOCKED: ${task.priority["blocker-context"]}`);
-      }
-
-      const prompt = [
-        parts.join(" | "),
-        "",
-        `Read the task file at ${fullPath} for full context (enrichment notes, next steps, activity log).`,
-        "Respond briefly with just the task title and current state to confirm you've loaded it.",
-        "The /tc-tasks:task-agent skill is available for full task management operations if needed.",
-      ].join("\n");
-
-      const tabs = this.sessions.get(task.path) || [];
-      this.createTerminalWithArgs(
-        [...claudeBaseArgs, prompt],
-        `Agent ${tabs.length + 1}`
-      );
+      this.spawnTaskAgent();
     });
+  }
+
+  private getClaudeBaseArgs(): string[] {
+    const pluginBase = (process.env.HOME || "") + "/working/claude-sandbox/plugins";
+    return [
+      this.settings.claudeCommand,
+      "--dangerously-skip-permissions",
+      "--plugin-dir", pluginBase + "/tc-services",
+      "--plugin-dir", pluginBase + "/tc-tools",
+      "--plugin-dir", pluginBase + "/tc-tasks",
+      "--plugin-dir", pluginBase + "/tc-core",
+    ];
+  }
+
+  private resolveFullPath(vaultRelativePath: string): string {
+    const home = process.env.HOME || process.env.USERPROFILE || "";
+    let fullPath = this.vaultPath + "/" + vaultRelativePath;
+    if (fullPath.startsWith("~/")) {
+      fullPath = home + fullPath.slice(1);
+    }
+    return fullPath;
+  }
+
+  private buildTaskPrompt(task: TaskFile, extraLines?: string[]): string {
+    const fullPath = this.resolveFullPath(task.path);
+    const parts: string[] = [
+      `Task: "${task.title}"`,
+      `State: ${task.state}`,
+      `File: ${fullPath}`,
+    ];
+    if (task.source.type !== "prompt" && task.source.id) {
+      parts.push(`Source: ${task.source.type} ${task.source.id}`);
+    }
+    if (task.source.url) {
+      parts.push(`URL: ${task.source.url}`);
+    }
+    if (task.priority.deadline) {
+      parts.push(`Deadline: ${task.priority.deadline}`);
+    }
+    if (task.priority["has-blocker"]) {
+      parts.push(`BLOCKED: ${task.priority["blocker-context"]}`);
+    }
+
+    const lines = [
+      parts.join(" | "),
+      "",
+      `Read the task file at ${fullPath} for full context (enrichment notes, next steps, activity log).`,
+      "Respond briefly with just the task title and current state to confirm you've loaded it.",
+      "The /tc-tasks:task-agent skill is available for full task management operations if needed.",
+    ];
+
+    if (extraLines && extraLines.length > 0) {
+      lines.push("", ...extraLines);
+    }
+
+    return lines.join("\n");
+  }
+
+  /** Spawn a Task Agent terminal for the active task, optionally with extra prompt lines. */
+  spawnTaskAgent(extraLines?: string[]): void {
+    if (!this.activeTask) return;
+    const task = this.activeTask;
+    const prompt = this.buildTaskPrompt(task, extraLines);
+    const tabs = this.sessions.get(task.path) || [];
+    this.createTerminalWithArgs(
+      [...this.getClaudeBaseArgs(), prompt],
+      `Agent ${tabs.length + 1}`
+    );
   }
 
   /** Return the count of shell and Claude tabs for a given task path */
@@ -469,6 +452,17 @@ export class TerminalPanel {
     if (tabs.length > 0 && this.activeTabIndex < tabs.length) {
       tabs[this.activeTabIndex].refit();
     }
+  }
+
+  /** Return task paths that have terminal sessions. */
+  getSessionPaths(): string[] {
+    return Array.from(this.sessions.keys());
+  }
+
+  /** Check if a task path has any terminal sessions. */
+  hasSessions(taskPath: string): boolean {
+    const tabs = this.sessions.get(taskPath);
+    return !!tabs && tabs.length > 0;
   }
 
   rekeyTask(oldPath: string, newPath: string): void {

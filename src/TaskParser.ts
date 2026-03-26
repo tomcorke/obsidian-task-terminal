@@ -39,6 +39,7 @@ export class TaskParser {
         : [];
 
     return {
+      id: fm.id || "",
       path: file.path,
       filename: file.name,
       state,
@@ -113,6 +114,31 @@ export class TaskParser {
     }
 
     return groups;
+  }
+
+  /** Add a UUID to any task file that doesn't have one. */
+  async backfillIds(): Promise<number> {
+    let count = 0;
+    const tasks = await this.loadAllTasks();
+    for (const task of tasks) {
+      if (task.id) continue;
+      const file = this.app.vault.getAbstractFileByPath(task.path) as TFile;
+      if (!file) continue;
+
+      const content = await this.app.vault.read(file);
+      const uuid = crypto.randomUUID();
+
+      // Insert id: after the opening ---
+      const updated = content.replace(
+        /^---\n/,
+        `---\nid: ${uuid}\n`
+      );
+      if (updated !== content) {
+        await this.app.vault.modify(file, updated);
+        count++;
+      }
+    }
+    return count;
   }
 
   isTaskFile(path: string): boolean {

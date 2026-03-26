@@ -14,6 +14,7 @@ import signal
 import struct
 import fcntl
 import termios
+import shlex
 
 
 def set_winsize(fd, rows, cols):
@@ -45,7 +46,20 @@ def main():
             set_winsize(1, rows, cols)
         except Exception:
             pass
-        os.execvp(args[0], args)
+
+        # If the command is already a shell, exec directly (e.g. /bin/zsh -i).
+        # Otherwise, wrap in a login shell so the full user environment (PATH,
+        # env vars from .zprofile/.zshrc) is available. This is needed because
+        # Electron's process.env.PATH is minimal and commands like `claude`
+        # live in profile-sourced dirs like ~/.local/bin.
+        shells = {"/bin/zsh", "/bin/bash", "/bin/sh", "/usr/bin/zsh", "/usr/bin/bash",
+                  "zsh", "bash", "sh"}
+        if args[0] in shells:
+            os.execvp(args[0], args)
+        else:
+            shell = os.environ.get("SHELL", "/bin/zsh")
+            cmd_str = " ".join(shlex.quote(a) for a in args)
+            os.execvp(shell, [shell, "-l", "-i", "-c", cmd_str])
     else:
         # Parent process - proxy I/O with resize support
         import select

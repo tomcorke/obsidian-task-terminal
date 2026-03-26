@@ -116,6 +116,9 @@ export class TerminalTab {
     terminal.loadAddon(this.fitAddon);
     terminal.open(containerEl);
 
+    // Scroll-to-bottom button
+    TerminalTab.attachScrollButton(containerEl, terminal);
+
     // Prevent Obsidian from intercepting keyboard events when terminal is focused.
     //
     // Two layers:
@@ -132,25 +135,12 @@ export class TerminalTab {
       e.stopPropagation();
     }, false);
 
-    // Capture-phase interception for modifier combos Obsidian steals
+    // Capture-phase interception for modifier combos Obsidian steals.
+    // We can't just stopPropagation (that prevents xterm from seeing the event too).
+    // Instead, synthesize the terminal escape sequence directly to PTY stdin,
+    // then kill the event entirely so neither xterm nor Obsidian processes it.
     const textareaEl = containerEl.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
-    const captureHandler = (e: KeyboardEvent) => {
-      if (!textareaEl || document.activeElement !== textareaEl) return;
-
-      const dominated =
-        // Shift+Enter (multiline input in Claude CLI)
-        (e.key === "Enter" && e.shiftKey) ||
-        // Option/Alt+Arrow (word navigation)
-        (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) ||
-        // Option/Alt+Backspace (delete word)
-        (e.altKey && e.key === "Backspace") ||
-        // Option/Alt+d (delete word forward)
-        (e.altKey && e.key === "d");
-
-      if (dominated) {
-        e.stopPropagation();
-      }
-    };
+    const captureHandler = TerminalTab.makeCaptureHandler(textareaEl, () => this.session);
     document.addEventListener("keydown", captureHandler, true);
     this._documentListeners = [{ event: "keydown", handler: captureHandler as EventListener }];
 
@@ -417,15 +407,7 @@ export class TerminalTab {
 
     // Re-register capture-phase keyboard interception
     const textareaEl = stored.containerEl.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
-    const captureHandler = (e: KeyboardEvent) => {
-      if (!textareaEl || document.activeElement !== textareaEl) return;
-      const dominated =
-        (e.key === "Enter" && e.shiftKey) ||
-        (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) ||
-        (e.altKey && e.key === "Backspace") ||
-        (e.altKey && e.key === "d");
-      if (dominated) e.stopPropagation();
-    };
+    const captureHandler = TerminalTab.makeCaptureHandler(textareaEl, () => tab.session);
     document.addEventListener("keydown", captureHandler, true);
     tab._documentListeners = [{ event: "keydown", handler: captureHandler as EventListener }];
 
@@ -433,6 +415,9 @@ export class TerminalTab {
     stored.containerEl.addEventListener("click", () => {
       stored.terminal.focus();
     });
+
+    // Scroll-to-bottom button
+    TerminalTab.attachScrollButton(stored.containerEl, stored.terminal);
 
     // Re-attach resize observer
     stored.resizeObserver.disconnect();
@@ -455,6 +440,71 @@ export class TerminalTab {
     };
 
     return tab;
+  }
+
+  /** Add a scroll-to-bottom button overlay to a terminal container. */
+  private static attachScrollButton(containerEl: HTMLElement, terminal: Terminal): void {
+    // Remove any existing button (e.g. from a previous reload)
+    containerEl.querySelector(".terminal-scroll-bottom")?.remove();
+
+    const scrollBtn = document.createElement("button");
+    scrollBtn.className = "terminal-scroll-bottom";
+    scrollBtn.setAttribute("aria-label", "Scroll to bottom");
+    scrollBtn.innerHTML = "&#x2193;";
+    scrollBtn.style.display = "none";
+    containerEl.appendChild(scrollBtn);
+
+    const updateScrollBtn = () => {
+      const buf = terminal.buffer.active;
+      const atBottom = buf.viewportY >= buf.baseY;
+      scrollBtn.style.display = atBottom ? "none" : "flex";
+    };
+    terminal.onScroll(updateScrollBtn);
+    terminal.onWriteParsed(updateScrollBtn);
+    scrollBtn.addEventListener("click", (e) => {
+      e.stopPropagation();
+      terminal.scrollToBottom();
+      terminal.focus();
+    });
+  }
+
+  /**
+   * Create a capture-phase keydown handler that synthesizes terminal escape
+   * sequences for modifier combos that Obsidian would otherwise steal.
+   * Writes directly to PTY stdin, then kills the event so neither xterm
+   * nor Obsidian processes it.
+   */
+  private static makeCaptureHandler(
+    textareaEl: HTMLTextAreaElement | null,
+    getSession: () => TerminalSession,
+  ): (e: KeyboardEvent) => void {
+    return (e: KeyboardEvent) => {
+      if (!textareaEl || document.activeElement !== textareaEl) return;
+
+      let seq: string | null = null;
+
+      if (e.key === "Enter" && e.shiftKey) {
+        // Shift+Enter: CSI u encoding so Claude CLI sees it as distinct from Enter
+        seq = "\x1b[13;2u";
+      } else if (e.altKey && e.key === "ArrowLeft") {
+        seq = "\x1bb"; // ESC b - word backward
+      } else if (e.altKey && e.key === "ArrowRight") {
+        seq = "\x1bf"; // ESC f - word forward
+      } else if (e.altKey && e.key === "Backspace") {
+        seq = "\x1b\x7f"; // ESC DEL - delete word backward
+      } else if (e.altKey && e.key === "d") {
+        seq = "\x1bd"; // ESC d - delete word forward
+      }
+
+      if (seq) {
+        const proc = getSession().process;
+        if (proc?.stdin && !proc.stdin.destroyed) {
+          proc.stdin.write(seq);
+        }
+        e.stopImmediatePropagation();
+        e.preventDefault();
+      }
+    };
   }
 
   dispose(): void {

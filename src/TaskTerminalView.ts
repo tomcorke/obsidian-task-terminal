@@ -1,5 +1,5 @@
 import { ItemView, type WorkspaceLeaf } from "obsidian";
-import { VIEW_TYPE_TASK_TERMINAL, type TaskTerminalSettings } from "./types";
+import { VIEW_TYPE_TASK_TERMINAL, STATE_FOLDER_MAP, type TaskTerminalSettings, type KanbanColumn } from "./types";
 import { TaskParser } from "./TaskParser";
 import { TaskMover } from "./TaskMover";
 import { TaskListPanel } from "./TaskListPanel";
@@ -17,6 +17,8 @@ export class TaskTerminalView extends ItemView {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private filterTimer: ReturnType<typeof setTimeout> | null = null;
   private containerObserver: ResizeObserver | null = null;
+  /** Tracks recently deleted task paths that had terminal sessions, for delete+create rename detection. */
+  private pendingRenames: Map<string, { uuid: string; timer: ReturnType<typeof setTimeout> }> = new Map();
   _isReloading = false;
 
   constructor(leaf: WorkspaceLeaf, private plugin: TaskTerminalPlugin) {
@@ -55,9 +57,12 @@ export class TaskTerminalView extends ItemView {
     // Top bar: prompt box + filter
     const topBar = leftPanel.createDiv({ cls: "task-terminal-top-bar" });
 
-    // Prompt box
+    // Prompt box: creates the task file instantly, then enriches in background
     const promptContainer = topBar.createDiv({ cls: "prompt-box-container" });
-    new PromptBox(promptContainer, this.plugin.settings);
+    const promptBox = new PromptBox(promptContainer, this.plugin.settings);
+    promptBox.onSubmit = (request) => {
+      this.createTaskFile(request.prompt, request.column, promptBox);
+    };
 
     // Filter input
     const filterWrap = topBar.createDiv({ cls: "task-filter-wrap" });
@@ -115,7 +120,18 @@ export class TaskTerminalView extends ItemView {
         this.plugin.taskOrder = order;
         this.plugin.saveTaskOrder();
       },
-      (path) => this.terminalPanel.getSessionCounts(path)
+      (path) => this.terminalPanel.getSessionCounts(path),
+      (newPath, originalTitle) => {
+        // Auto-spawn a task agent for the newly split task with scoping prompt
+        this.terminalPanel.spawnTaskAgent([
+          "---",
+          `This is a newly split task created from "${originalTitle}".`,
+          "Ask the user what scope this split task should cover, then update the task file:",
+          "- Rename the title to reflect the scoped work",
+          "- Update the description/context with the agreed scope",
+          "- Rename the file to match the new title (TASK-YYYYMMDD-HHMM-new-slug.md pattern)",
+        ]);
+      }
     );
 
     await this.taskList.render();
@@ -147,6 +163,21 @@ export class TaskTerminalView extends ItemView {
     this.registerEvent(
       this.app.vault.on("create", (file) => {
         if (this.parser.isTaskFile(file.path)) {
+          // Check if this is the "create" half of a delete+create rename
+          this.handlePossibleRename(file.path);
+
+          // Prepend new tasks to the top of their column's custom order
+          // so they appear first rather than being sorted to the bottom.
+          const col = this.columnFromPath(file.path);
+          if (col) {
+            const order = this.plugin.taskOrder[col] || [];
+            if (!order.includes(file.path)) {
+              order.unshift(file.path);
+              this.plugin.taskOrder[col] = order;
+              this.plugin.saveTaskOrder();
+            }
+          }
+
           this.debouncedRefresh();
         }
       })
@@ -166,6 +197,17 @@ export class TaskTerminalView extends ItemView {
     this.registerEvent(
       this.app.vault.on("delete", (file) => {
         if (this.parser.isTaskFile(file.path)) {
+          // If the deleted file had terminal sessions, buffer it for delete+create rename detection.
+          // Shell-based renames (mv) appear as delete+create rather than a rename event.
+          if (this.terminalPanel.hasSessions(file.path)) {
+            // Grab UUID from metadata cache before it's cleared
+            const cache = this.app.metadataCache.getCache(file.path);
+            const uuid = cache?.frontmatter?.id || "";
+            const timer = setTimeout(() => {
+              this.pendingRenames.delete(file.path);
+            }, 2000);
+            this.pendingRenames.set(file.path, { uuid, timer });
+          }
           this.debouncedRefresh();
         }
       })
@@ -195,6 +237,241 @@ export class TaskTerminalView extends ItemView {
         }
       })
     );
+  }
+
+  /**
+   * When a new task file is created, check if it matches a recently deleted task that had
+   * terminal sessions. If so, treat it as a rename: re-key sessions, selection, and order.
+   * This handles shell-based renames (mv) which Obsidian sees as delete+create.
+   * Matches by UUID (frontmatter `id` field) when available, falls back to same-folder heuristic.
+   */
+  private handlePossibleRename(newPath: string): void {
+    if (this.pendingRenames.size === 0) return;
+
+    // Try to read the new file's UUID from the metadata cache
+    const newCache = this.app.metadataCache.getCache(newPath);
+    const newUuid = newCache?.frontmatter?.id || "";
+
+    let matchedOldPath: string | null = null;
+
+    // First pass: match by UUID (confident match, works across folders)
+    if (newUuid) {
+      for (const [oldPath, entry] of this.pendingRenames) {
+        if (entry.uuid && entry.uuid === newUuid) {
+          matchedOldPath = oldPath;
+          break;
+        }
+      }
+    }
+
+    // Second pass: fall back to same-folder heuristic for tasks without UUIDs
+    if (!matchedOldPath) {
+      const newFolder = newPath.substring(0, newPath.lastIndexOf("/"));
+      for (const [oldPath, entry] of this.pendingRenames) {
+        if (!entry.uuid) {
+          const oldFolder = oldPath.substring(0, oldPath.lastIndexOf("/"));
+          if (oldFolder === newFolder) {
+            matchedOldPath = oldPath;
+            break;
+          }
+        }
+      }
+    }
+
+    if (!matchedOldPath) return;
+
+    const entry = this.pendingRenames.get(matchedOldPath)!;
+    clearTimeout(entry.timer);
+    this.pendingRenames.delete(matchedOldPath);
+
+    console.log(`[task-terminal] Detected rename via delete+create: ${matchedOldPath} -> ${newPath}` +
+      (newUuid ? ` (matched by UUID ${newUuid})` : " (matched by folder)"));
+
+    this.terminalPanel.rekeyTask(matchedOldPath, newPath);
+    this.taskList.rekeyTask(matchedOldPath, newPath);
+
+    // Update stored task order
+    let orderChanged = false;
+    for (const col of Object.keys(this.plugin.taskOrder)) {
+      const paths = this.plugin.taskOrder[col];
+      const idx = paths.indexOf(matchedOldPath);
+      if (idx !== -1) {
+        paths[idx] = newPath;
+        orderChanged = true;
+      }
+    }
+    if (orderChanged) {
+      this.plugin.saveTaskOrder();
+    }
+  }
+
+  /** Infer the kanban column from a task file's folder path. */
+  private columnFromPath(path: string): KanbanColumn | null {
+    const base = this.plugin.settings.taskBasePath + "/";
+    if (!path.startsWith(base)) return null;
+    const rest = path.slice(base.length);
+    const folder = rest.split("/")[0];
+    // STATE_FOLDER_MAP maps column -> folder; invert it
+    for (const [col, f] of Object.entries(STATE_FOLDER_MAP)) {
+      if (f === folder) return col as KanbanColumn;
+    }
+    return null;
+  }
+
+  /**
+   * Create a task file instantly from the prompt, then spawn Claude in the background to enrich it.
+   * The task appears immediately in the kanban board; enrichment updates it in place.
+   */
+  private async createTaskFile(prompt: string, column: KanbanColumn, promptBox: PromptBox): Promise<void> {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+    const timeStr = `${pad(now.getHours())}${pad(now.getMinutes())}`;
+
+    // Derive a title from the prompt (first sentence or first 60 chars)
+    const rawTitle = prompt.split(/[.\n]/)[0].trim();
+    const title = rawTitle.length > 60 ? rawTitle.slice(0, 57) + "..." : rawTitle;
+
+    // Build slug from title
+    const slug = title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 40)
+      .replace(/-$/, "");
+
+    const filename = `TASK-${dateStr}-${timeStr}-${slug}.md`;
+    const folder = `${this.plugin.settings.taskBasePath}/${STATE_FOLDER_MAP[column]}`;
+    const newPath = `${folder}/${filename}`;
+    const isoNow = now.toISOString().replace(/\.\d{3}Z$/, "Z");
+    const uuid = crypto.randomUUID();
+    const state = column === "done" ? "done" : column;
+
+    const content = [
+      "---",
+      `id: ${uuid}`,
+      "tags:",
+      "  - task",
+      `  - task/${state}`,
+      "  - engineering",
+      `state: ${state}`,
+      `title: "${title.replace(/"/g, '\\"')}"`,
+      "source:",
+      "  type: prompt",
+      `  id: "prompt-${dateStr}T${timeStr}"`,
+      '  url: ""',
+      `  captured: ${isoNow}`,
+      "priority:",
+      "  score: 0",
+      '  deadline: ""',
+      "  impact: medium",
+      "  has-blocker: false",
+      '  blocker-context: ""',
+      "agent-actionable: true",
+      'agent-actionable-reason: "Created from task-terminal prompt"',
+      "goal: []",
+      "related: []",
+      `created: ${isoNow}`,
+      `updated: ${isoNow}`,
+      "---",
+      "",
+      `# ${title}`,
+      "",
+      "## Context",
+      prompt,
+      "",
+      "## Source",
+      prompt,
+      "",
+      "## Enrichment Notes",
+      "",
+      "",
+      "## Next Steps",
+      "- [ ] Run duplicate check (deferred from fast creation)",
+      "- [ ] Run goal alignment (deferred from fast creation)",
+      "- [ ] Run related task detection (deferred from fast creation)",
+      "",
+      "## Activity Log",
+      `- **${now.toISOString().slice(0, 10)} ${pad(now.getHours())}:${pad(now.getMinutes())}** - Created from prompt (fast mode)`,
+      "",
+    ].join("\n");
+
+    // Ensure folder exists
+    const folderAbstract = this.app.vault.getAbstractFileByPath(folder);
+    if (!folderAbstract) {
+      await this.app.vault.createFolder(folder);
+    }
+
+    await this.app.vault.create(newPath, content);
+
+    // Prepend to custom order so it appears at the top
+    const order = this.plugin.taskOrder[column] || [];
+    if (!order.includes(newPath)) {
+      order.unshift(newPath);
+      this.plugin.taskOrder[column] = order;
+      this.plugin.saveTaskOrder();
+    }
+
+    console.log(`[task-terminal] Task file created: ${newPath}`);
+
+    // Spawn Claude in background to enrich (non-blocking, fire and forget)
+    const adapter = this.app.vault.adapter as any;
+    let vaultPath: string = adapter.basePath || adapter.getBasePath?.() || "";
+    const home = process.env.HOME || "";
+    if (vaultPath.startsWith("~/") || vaultPath === "~") {
+      vaultPath = home + vaultPath.slice(1);
+    } else if (!vaultPath.startsWith("/") && home) {
+      vaultPath = home + "/" + vaultPath;
+    }
+    const fullPath = vaultPath + "/" + newPath;
+
+    this.taskList.setIngesting(newPath);
+    promptBox.runBackgroundEnrich(fullPath).then(
+      () => this.taskList.clearIngesting(newPath),
+      (err) => {
+        console.error(`[task-terminal] Background enrich failed for ${newPath}:`, err);
+        this.taskList.clearIngesting(newPath);
+      }
+    );
+  }
+
+  /**
+   * Wait for a task file (by filename) to appear in metadataCache with parsed frontmatter.
+   * Listens for metadataCache "changed" events and falls back to a timeout.
+   */
+  private waitForTaskFile(filename: string, callback: () => void): void {
+    // Check if it already exists
+    const existing = this.app.vault.getMarkdownFiles().find((f) => f.name === filename);
+    if (existing) {
+      const cache = this.app.metadataCache.getFileCache(existing);
+      if (cache?.frontmatter?.state) {
+        callback();
+        return;
+      }
+    }
+
+    let resolved = false;
+    const resolve = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(fallback);
+      this.app.metadataCache.off("changed", handler);
+      callback();
+    };
+
+    const handler = (file: any) => {
+      if (file.name === filename) {
+        const cache = this.app.metadataCache.getFileCache(file);
+        if (cache?.frontmatter?.state) {
+          resolve();
+        }
+      }
+    };
+
+    this.app.metadataCache.on("changed", handler);
+
+    // Fallback: if metadataCache never fires, resolve after 5s
+    const fallback = setTimeout(resolve, 5000);
   }
 
   private debouncedRefresh(modifiedPath?: string): void {
@@ -254,6 +531,8 @@ export class TaskTerminalView extends ItemView {
   async onClose(): Promise<void> {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.filterTimer) clearTimeout(this.filterTimer);
+    for (const entry of this.pendingRenames.values()) clearTimeout(entry.timer);
+    this.pendingRenames.clear();
     this.containerObserver?.disconnect();
     this.taskDetail?.unload();
     if (this._isReloading) {

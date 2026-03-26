@@ -38,6 +38,15 @@ function buildContextPrompt(task: TaskFile, fullPath: string): string {
   ].join("\n");
 }
 
+/** A placeholder card shown while a task is being created by Claude. */
+interface PendingPlaceholder {
+  id: string;
+  prompt: string;
+  column: KanbanColumn;
+  el: HTMLElement;
+  state: "creating" | "done" | "error";
+}
+
 export class TaskListPanel {
   private cards: Map<string, TaskCard> = new Map();
   private selectedPath: string | null = null;
@@ -47,6 +56,8 @@ export class TaskListPanel {
   private filterTerm = "";
   private dragSourcePath: string | null = null;
   private dropIndicator: HTMLElement;
+  private placeholders: Map<string, PendingPlaceholder> = new Map();
+  private ingestingPaths: Set<string> = new Set();
 
   constructor(
     private containerEl: HTMLElement,
@@ -57,7 +68,8 @@ export class TaskListPanel {
     private vaultPath: string,
     private onTaskSelect: (task: TaskFile | null) => void,
     private onOrderChange: (order: TaskOrder) => void,
-    private getSessionCount?: (path: string) => { shells: number; claudes: number }
+    private getSessionCount?: (path: string) => { shells: number; claudes: number },
+    private onSplitComplete?: (newPath: string, originalTitle: string) => void
   ) {
     this.containerEl.addClass("task-list-panel");
 
@@ -107,7 +119,10 @@ export class TaskListPanel {
           (t, targetCol) => this.contextMove(t, targetCol),
           (t) => this.copyName(t),
           (t) => this.copyPath(t),
-          (t) => this.copyPrompt(t)
+          (t) => this.copyPrompt(t),
+          (t) => this.splitTask(t, col),
+          (t) => this.deleteTask(t),
+          this.ingestingPaths.has(task.path)
         );
         this.cards.set(task.path, card);
         cardsEl.appendChild(card.el);
@@ -119,6 +134,16 @@ export class TaskListPanel {
       // Apply collapsed state
       if (this.collapsedSections.has(col)) {
         section.addClass("collapsed");
+      }
+    }
+
+    // Re-insert any active placeholder cards at the top of their target column
+    for (const placeholder of this.placeholders.values()) {
+      if (placeholder.state === "creating") {
+        const cardsEl = this.sectionCardsEls.get(placeholder.column);
+        if (cardsEl) {
+          cardsEl.prepend(placeholder.el);
+        }
       }
     }
 
@@ -350,6 +375,115 @@ export class TaskListPanel {
     setTimeout(() => this.render(), 200);
   }
 
+  private async deleteTask(task: TaskFile): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(task.path) as TFile;
+    if (!file) return;
+    await this.app.vault.trash(file, true);
+    // Vault "delete" event will trigger a refresh via the view's watcher
+  }
+
+  private async splitTask(task: TaskFile, column: KanbanColumn): Promise<void> {
+    const now = new Date();
+    const pad = (n: number) => String(n).padStart(2, "0");
+    const dateStr = `${now.getFullYear()}${pad(now.getMonth() + 1)}${pad(now.getDate())}`;
+    const timeStr = `${pad(now.getHours())}${pad(now.getMinutes())}`;
+
+    // Build slug from original title (truncated kebab-case)
+    const slug = task.title
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-|-$/g, "")
+      .slice(0, 40)
+      .replace(/-$/, "");
+
+    const filename = `TASK-${dateStr}-${timeStr}-split-from-${slug}.md`;
+    const folder = `${this.parser.basePath}/${STATE_FOLDER_MAP[column]}`;
+    const newPath = `${folder}/${filename}`;
+
+    const title = `Split from: ${task.title}`;
+    const isoNow = now.toISOString().replace(/\.\d{3}Z$/, "Z");
+
+    // Strip the filename extension from original for wikilink
+    const originalBasename = task.filename.replace(/\.md$/, "");
+
+    const uuid = crypto.randomUUID();
+
+    const content = [
+      "---",
+      `id: ${uuid}`,
+      "tags:",
+      "  - task",
+      `  - task/${column === "done" ? "done" : column}`,
+      "  - engineering",
+      `state: ${column === "done" ? "done" : column}`,
+      `title: "${title}"`,
+      "source:",
+      '  type: prompt',
+      `  id: "split-${dateStr}T${timeStr}"`,
+      '  url: ""',
+      `  captured: ${isoNow}`,
+      "priority:",
+      "  score: 0",
+      '  deadline: ""',
+      "  impact: medium",
+      "  has-blocker: false",
+      '  blocker-context: ""',
+      "agent-actionable: true",
+      'agent-actionable-reason: "Split task - scope to be defined by user"',
+      `goal: ${JSON.stringify(task.goal)}`,
+      "related:",
+      `  - "[[${originalBasename}]]"`,
+      `created: ${isoNow}`,
+      `updated: ${isoNow}`,
+      "---",
+      "",
+      `# ${title}`,
+      "",
+      "## Context",
+      `Split from [[${originalBasename}]]. Scope to be defined.`,
+      "",
+      "## Activity Log",
+      `- **${now.toISOString().slice(0, 10)} ${pad(now.getHours())}:${pad(now.getMinutes())}** - Created as split from "${task.title}"`,
+      "",
+    ].join("\n");
+
+    // Ensure folder exists
+    const folderAbstract = this.app.vault.getAbstractFileByPath(folder);
+    if (!folderAbstract) {
+      await this.app.vault.createFolder(folder);
+    }
+
+    await this.app.vault.create(newPath, content);
+
+    // Insert into custom order immediately after original task
+    const order = this.taskOrder[column] || [];
+    const origIdx = order.indexOf(task.path);
+    if (origIdx !== -1) {
+      order.splice(origIdx + 1, 0, newPath);
+    } else {
+      // Original wasn't in custom order - build order from current DOM and insert after
+      const cardsEl = this.sectionCardsEls.get(column);
+      if (cardsEl) {
+        const currentPaths = Array.from(cardsEl.querySelectorAll<HTMLElement>(".task-card"))
+          .map(el => el.dataset.path!);
+        const domIdx = currentPaths.indexOf(task.path);
+        currentPaths.splice(domIdx + 1, 0, newPath);
+        this.taskOrder[column] = currentPaths;
+      } else {
+        order.push(newPath);
+        this.taskOrder[column] = order;
+      }
+    }
+    this.onOrderChange(this.taskOrder);
+
+    // Wait for metadataCache to parse the new file, then re-render and select
+    this.waitForMetadataCache(newPath, async () => {
+      await this.render();
+      this.selectTaskByPath(newPath);
+      this.onSplitComplete?.(newPath, task.title);
+    });
+  }
+
   private copyName(task: TaskFile): void {
     navigator.clipboard.writeText(task.title);
   }
@@ -428,5 +562,151 @@ export class TaskListPanel {
 
   getSelectedPath(): string | null {
     return this.selectedPath;
+  }
+
+  /**
+   * Wait for metadataCache to have parsed frontmatter for a vault-relative path.
+   * Uses a one-shot listener with a timeout fallback.
+   */
+  private waitForMetadataCache(path: string, callback: () => void): void {
+    // Check if already cached
+    const file = this.app.vault.getAbstractFileByPath(path);
+    if (file) {
+      const cache = this.app.metadataCache.getFileCache(file as any);
+      if (cache?.frontmatter) {
+        callback();
+        return;
+      }
+    }
+
+    let resolved = false;
+    const resolve = () => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(fallback);
+      this.app.metadataCache.off("changed", handler);
+      callback();
+    };
+
+    const handler = (changedFile: any) => {
+      if (changedFile.path === path) {
+        const cache = this.app.metadataCache.getFileCache(changedFile);
+        if (cache?.frontmatter) {
+          resolve();
+        }
+      }
+    };
+
+    this.app.metadataCache.on("changed", handler);
+    const fallback = setTimeout(resolve, 3000);
+  }
+
+  // --- Placeholder card management ---
+
+  /** Add a placeholder card at the top of the "todo" column for an in-flight creation. */
+  addPlaceholder(id: string, prompt: string, column: KanbanColumn = "todo"): void {
+    const truncated = prompt.length > 50 ? prompt.slice(0, 47) + "..." : prompt;
+    const el = document.createElement("div");
+    el.addClass("task-card", "task-card-placeholder");
+    el.innerHTML = `
+      <div class="task-card-title-row">
+        <div class="task-card-title placeholder-title">
+          <span class="placeholder-spinner"></span>
+          Creating task...
+        </div>
+      </div>
+      <div class="task-card-meta">
+        <span class="task-card-source placeholder-prompt" title="${prompt.replace(/"/g, "&quot;")}">${truncated}</span>
+      </div>
+    `;
+
+    const placeholder: PendingPlaceholder = { id, prompt, column, el, state: "creating" };
+    this.placeholders.set(id, placeholder);
+
+    const cardsEl = this.sectionCardsEls.get(column);
+    if (cardsEl) {
+      cardsEl.prepend(el);
+      this.updateSectionCount(column, 1);
+    }
+  }
+
+  /** Mark a placeholder as done (will be removed on next render when real card appears). */
+  resolvePlaceholder(id: string, summary: string): void {
+    const placeholder = this.placeholders.get(id);
+    if (!placeholder) return;
+    placeholder.state = "done";
+    const titleEl = placeholder.el.querySelector(".placeholder-title");
+    if (titleEl) {
+      titleEl.innerHTML = `<span class="placeholder-check">&#10003;</span> ${summary}`;
+    }
+    placeholder.el.addClass("placeholder-done");
+    placeholder.el.removeClass("task-card-placeholder");
+  }
+
+  /** Mark a placeholder as failed with an error message. Auto-removes after 5s. */
+  failPlaceholder(id: string, error: string): void {
+    const placeholder = this.placeholders.get(id);
+    if (!placeholder) return;
+    placeholder.state = "error";
+    const titleEl = placeholder.el.querySelector(".placeholder-title");
+    if (titleEl) {
+      const truncErr = error.length > 60 ? error.slice(0, 57) + "..." : error;
+      titleEl.innerHTML = `<span class="placeholder-error-icon">&#10007;</span> Failed: ${truncErr}`;
+      titleEl.setAttribute("title", error);
+    }
+    placeholder.el.addClass("placeholder-error");
+    placeholder.el.removeClass("task-card-placeholder");
+
+    setTimeout(() => this.removePlaceholder(id), 5000);
+  }
+
+  /** Remove a placeholder card from the DOM and tracking map. */
+  removePlaceholder(id: string): void {
+    const placeholder = this.placeholders.get(id);
+    if (!placeholder) return;
+    placeholder.el.remove();
+    this.placeholders.delete(id);
+    // Count will be corrected on next render
+  }
+
+  /** Mark a task path as currently being ingested by background Claude. */
+  setIngesting(path: string): void {
+    this.ingestingPaths.add(path);
+    const card = this.cards.get(path);
+    if (card) {
+      card.el.addClass("ingesting");
+      const meta = card.el.querySelector(".task-card-meta");
+      if (meta && !meta.querySelector(".task-card-ingesting")) {
+        const badge = document.createElement("span");
+        badge.className = "task-card-ingesting";
+        badge.textContent = "ingesting...";
+        const source = meta.querySelector(".task-card-source");
+        if (source?.nextSibling) {
+          meta.insertBefore(badge, source.nextSibling);
+        } else {
+          meta.appendChild(badge);
+        }
+      }
+    }
+  }
+
+  /** Clear ingesting status for a task path. */
+  clearIngesting(path: string): void {
+    this.ingestingPaths.delete(path);
+    const card = this.cards.get(path);
+    if (card) {
+      card.el.removeClass("ingesting");
+      card.el.querySelector(".task-card-ingesting")?.remove();
+    }
+  }
+
+  private updateSectionCount(column: KanbanColumn, delta: number): void {
+    const section = this.sectionEls.get(column);
+    if (!section) return;
+    const countEl = section.querySelector(".section-count");
+    if (countEl) {
+      const current = parseInt(countEl.textContent || "0", 10);
+      countEl.textContent = String(current + delta);
+    }
   }
 }

@@ -23,7 +23,10 @@ export class TaskCard {
     private onContextMove?: (task: TaskFile, column: KanbanColumn) => void,
     private onCopyName?: (task: TaskFile) => void,
     private onCopyPath?: (task: TaskFile) => void,
-    private onCopyPrompt?: (task: TaskFile) => void
+    private onCopyPrompt?: (task: TaskFile) => void,
+    private onSplitTask?: (task: TaskFile) => void,
+    private onDeleteTask?: (task: TaskFile) => void,
+    private ingesting?: boolean
   ) {
     this.el = this.render();
   }
@@ -31,6 +34,7 @@ export class TaskCard {
   private render(): HTMLElement {
     const card = document.createElement("div");
     card.addClass("task-card");
+    if (this.ingesting) card.addClass("ingesting");
     card.dataset.path = this.task.path;
     card.draggable = true;
 
@@ -75,6 +79,12 @@ export class TaskCard {
     // Source badge
     const source = meta.createSpan({ cls: "task-card-source" });
     source.textContent = SOURCE_LABELS[this.task.source.type] || "---";
+
+    // Ingesting indicator
+    if (this.ingesting) {
+      const badge = meta.createSpan({ cls: "task-card-ingesting" });
+      badge.textContent = "ingesting...";
+    }
 
     // Priority score
     if (this.task.priority.score > 0) {
@@ -139,6 +149,20 @@ export class TaskCard {
   private showContextMenu(x: number, y: number): void {
     const items: MenuItem[] = [];
 
+    // Move to top
+    items.push({
+      label: "Move to Top",
+      action: () => this.onMoveToTop?.(this.task),
+    });
+
+    // Split task
+    items.push({
+      label: "Split Task",
+      action: () => this.onSplitTask?.(this.task),
+    });
+
+    items.push({ separator: true });
+
     // Move to other columns
     for (const col of KANBAN_COLUMNS) {
       if (col === this.column) continue;
@@ -147,14 +171,6 @@ export class TaskCard {
         action: () => this.onContextMove?.(this.task, col),
       });
     }
-
-    items.push({ separator: true });
-
-    // Move to top
-    items.push({
-      label: "Move to Top",
-      action: () => this.onMoveToTop?.(this.task),
-    });
 
     items.push({ separator: true });
 
@@ -170,6 +186,14 @@ export class TaskCard {
     items.push({
       label: "Copy Context Prompt",
       action: () => this.onCopyPrompt?.(this.task),
+    });
+
+    items.push({ separator: true });
+
+    items.push({
+      label: "Delete Task",
+      danger: true,
+      action: () => this.onDeleteTask?.(this.task),
     });
 
     new ContextMenu(items, x, y);

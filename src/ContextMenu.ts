@@ -1,6 +1,8 @@
 export interface MenuItemDef {
   label: string;
   action: () => void;
+  /** Show in red and require a second click to confirm. */
+  danger?: boolean;
 }
 
 export interface MenuSeparator {
@@ -28,11 +30,28 @@ export class ContextMenu {
       }
       const row = this.el.createDiv({ cls: "task-context-menu-item" });
       row.textContent = item.label;
-      row.addEventListener("click", (e) => {
-        e.stopPropagation();
-        item.action();
-        this.dismiss();
-      });
+
+      if (item.danger) {
+        row.addClass("task-context-menu-danger");
+        let armed = false;
+        row.addEventListener("click", (e) => {
+          e.stopPropagation();
+          if (!armed) {
+            armed = true;
+            row.textContent = `${item.label} - click to confirm`;
+            row.addClass("task-context-menu-danger-armed");
+            return;
+          }
+          item.action();
+          this.dismiss();
+        });
+      } else {
+        row.addEventListener("click", (e) => {
+          e.stopPropagation();
+          item.action();
+          this.dismiss();
+        });
+      }
     }
 
     document.body.appendChild(this.el);

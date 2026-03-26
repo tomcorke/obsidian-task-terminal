@@ -26,6 +26,7 @@ export type TaskState =
 export type KanbanColumn = "priority" | "todo" | "active" | "done";
 
 export interface TaskFile {
+  id: string;
   path: string;
   filename: string;
   state: TaskState;
