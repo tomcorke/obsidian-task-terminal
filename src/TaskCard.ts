@@ -37,6 +37,7 @@ export class TaskCard {
       moveBtn.addEventListener("click", (e) => {
         e.stopPropagation();
         this.onMoveToTop?.(this.task);
+        this.onSelect(this.task);
       });
     }
 
