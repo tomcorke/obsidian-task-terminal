@@ -80,11 +80,20 @@ export class TaskDetailPanel {
 
   private applyMinEditorWidth(): void {
     if (!this.editorLeaf) return;
-    const parent = this.editorLeaf.parent as any;
-    if (!parent || !parent.children || parent.children.length < 2) return;
 
-    const leftChild = parent.children[0];
-    const rightChild = parent.children[1];
+    // createLeafBySplit wraps each side in its own split container, so the
+    // two siblings we need to resize live one level higher than editorLeaf.parent.
+    const editorSplit = (this.editorLeaf as any).parent;
+    const rootSplit = editorSplit?.parent;
+    if (!rootSplit?.children || rootSplit.children.length < 2) return;
+
+    // Identify which child is the editor split and which is the task-terminal split
+    const editorIdx = rootSplit.children.indexOf(editorSplit);
+    if (editorIdx === -1) return;
+    const ttIdx = editorIdx === 0 ? 1 : 0;
+
+    const editorChild = rootSplit.children[editorIdx];
+    const ttChild = rootSplit.children[ttIdx];
 
     // Read Obsidian's readable line width from CSS variable, fallback 700px
     const rootStyle = getComputedStyle(document.body);
@@ -94,17 +103,17 @@ export class TaskDetailPanel {
     // Add padding for gutters, scrollbar, and editor chrome
     const editorWidth = lineWidth + 80;
 
-    // Right child (editor): fixed width, no grow
-    if (rightChild?.containerEl) {
-      rightChild.containerEl.style.flexGrow = "0";
-      rightChild.containerEl.style.flexShrink = "0";
-      rightChild.containerEl.style.flexBasis = `${editorWidth}px`;
+    // Editor split: fixed width, no grow
+    if (editorChild?.containerEl) {
+      editorChild.containerEl.style.flexGrow = "0";
+      editorChild.containerEl.style.flexShrink = "0";
+      editorChild.containerEl.style.flexBasis = `${editorWidth}px`;
     }
-    // Left child (task-terminal): fill remaining space
-    if (leftChild?.containerEl) {
-      leftChild.containerEl.style.flexGrow = "1";
-      leftChild.containerEl.style.flexShrink = "1";
-      leftChild.containerEl.style.flexBasis = "0%";
+    // Task-terminal split: fill remaining space
+    if (ttChild?.containerEl) {
+      ttChild.containerEl.style.flexGrow = "1";
+      ttChild.containerEl.style.flexShrink = "1";
+      ttChild.containerEl.style.flexBasis = "0%";
     }
   }
 
