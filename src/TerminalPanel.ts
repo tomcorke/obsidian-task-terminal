@@ -92,6 +92,7 @@ export class TerminalPanel {
       taskPath,
       preCommand
     );
+    tab.onLabelChange = () => this.renderTabBar();
 
     tabs.push(tab);
     this.sessions.set(taskPath, tabs);
@@ -120,6 +121,7 @@ export class TerminalPanel {
       undefined,
       command
     );
+    tab.onLabelChange = () => this.renderTabBar();
 
     tabs.push(tab);
     this.sessions.set(taskPath, tabs);
@@ -222,25 +224,80 @@ export class TerminalPanel {
       );
     });
 
-    // Launch Claude with task-agent prompt
+    // Launch Claude with lightweight task context prompt
     const taskBtn = this.tabBarEl.createDiv({
       cls: "terminal-tab-btn claude-btn task-agent-btn",
       text: "+ Task Agent",
     });
     taskBtn.addEventListener("click", () => {
       if (!this.activeTask) return;
+      const task = this.activeTask;
       const home = process.env.HOME || process.env.USERPROFILE || "";
-      let fullPath = this.vaultPath + "/" + this.activeTask.path;
+      let fullPath = this.vaultPath + "/" + task.path;
       if (fullPath.startsWith("~/")) {
         fullPath = home + fullPath.slice(1);
       }
-      const prompt = `/tc-tasks:task-agent ${fullPath}`;
-      const tabs = this.sessions.get(this.activeTask.path) || [];
+
+      // Build lightweight context prompt from parsed task metadata
+      const parts: string[] = [
+        `Task: "${task.title}"`,
+        `State: ${task.state}`,
+        `File: ${fullPath}`,
+      ];
+      if (task.source.type !== "prompt" && task.source.id) {
+        parts.push(`Source: ${task.source.type} ${task.source.id}`);
+      }
+      if (task.source.url) {
+        parts.push(`URL: ${task.source.url}`);
+      }
+      if (task.priority.deadline) {
+        parts.push(`Deadline: ${task.priority.deadline}`);
+      }
+      if (task.priority["has-blocker"]) {
+        parts.push(`BLOCKED: ${task.priority["blocker-context"]}`);
+      }
+
+      const prompt = [
+        parts.join(" | "),
+        "",
+        `Read the task file at ${fullPath} for full context (enrichment notes, next steps, activity log).`,
+        "Respond briefly with just the task title and current state to confirm you've loaded it.",
+        "The /tc-tasks:task-agent skill is available for full task management operations if needed.",
+      ].join("\n");
+
+      const tabs = this.sessions.get(task.path) || [];
       this.createTerminalWithArgs(
         [...claudeBaseArgs, prompt],
         `Agent ${tabs.length + 1}`
       );
     });
+  }
+
+  /** Re-fit the active terminal to its container dimensions */
+  refitActive(): void {
+    if (!this.activeTask) return;
+    const tabs = this.sessions.get(this.activeTask.path) || [];
+    if (tabs.length > 0 && this.activeTabIndex < tabs.length) {
+      tabs[this.activeTabIndex].refit();
+    }
+  }
+
+  rekeyTask(oldPath: string, newPath: string): void {
+    const tabs = this.sessions.get(oldPath);
+    if (!tabs) return;
+
+    this.sessions.delete(oldPath);
+    this.sessions.set(newPath, tabs);
+
+    // Update taskPath on each tab's session
+    for (const tab of tabs) {
+      tab.session.taskPath = newPath;
+    }
+
+    // Update activeTask reference if it matches
+    if (this.activeTask && this.activeTask.path === oldPath) {
+      this.activeTask = { ...this.activeTask, path: newPath };
+    }
   }
 
   disposeAll(): void {

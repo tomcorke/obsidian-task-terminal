@@ -7,6 +7,7 @@ import {
   type KanbanColumn,
   KANBAN_COLUMNS,
   COLUMN_LABELS,
+  STATE_FOLDER_MAP,
 } from "./types";
 import type { TaskOrder } from "./main";
 
@@ -195,13 +196,13 @@ export class TaskListPanel {
         this.reorderInSection(column, taskPath, dropIndex);
       } else {
         // Different section - move task state
-        await this.mover.moveTask(file, column);
-        // After move, put the card at the drop position
         const dropIndex = this.getDropIndex(cardsEl, e.clientY);
+        await this.mover.moveTask(file, column);
+        // Compute the new path after move (file.name stays the same, folder changes)
+        const newPath = `${this.parser.basePath}/${STATE_FOLDER_MAP[column]}/${file.name}`;
         setTimeout(() => {
           this.render().then(() => {
-            // Update order for the target section to place the moved card at drop position
-            this.reorderAfterMove(column, taskPath, dropIndex);
+            this.reorderAfterMove(column, newPath, dropIndex);
           });
         }, 200);
       }
@@ -344,6 +345,12 @@ export class TaskListPanel {
           section.style.display = "";
         }
       }
+    }
+  }
+
+  rekeyTask(oldPath: string, newPath: string): void {
+    if (this.selectedPath === oldPath) {
+      this.selectedPath = newPath;
     }
   }
 

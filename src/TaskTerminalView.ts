@@ -16,6 +16,7 @@ export class TaskTerminalView extends ItemView {
   private mover: TaskMover;
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private filterTimer: ReturnType<typeof setTimeout> | null = null;
+  private containerObserver: ResizeObserver | null = null;
 
   constructor(leaf: WorkspaceLeaf, private plugin: TaskTerminalPlugin) {
     super(leaf);
@@ -118,6 +119,12 @@ export class TaskTerminalView extends ItemView {
     // Setup resizer
     this.setupResizer(divider, leftPanel, 200);
 
+    // Re-fit terminals when the overall pane resizes (e.g. switching back to this view)
+    this.containerObserver = new ResizeObserver(() => {
+      requestAnimationFrame(() => this.terminalPanel.refitActive());
+    });
+    this.containerObserver.observe(container);
+
     // Vault events
     this.registerEvent(
       this.app.vault.on("modify", (file) => {
@@ -146,6 +153,10 @@ export class TaskTerminalView extends ItemView {
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
         if (this.parser.isTaskFile(file.path) || this.parser.isTaskFile(oldPath)) {
+          // Re-key terminal sessions and selection so they follow the moved/renamed task
+          this.terminalPanel.rekeyTask(oldPath, file.path);
+          this.taskList.rekeyTask(oldPath, file.path);
+
           // Update stored task order so the renamed file keeps its position
           let orderChanged = false;
           for (const col of Object.keys(this.plugin.taskOrder)) {
@@ -180,10 +191,14 @@ export class TaskTerminalView extends ItemView {
   ): void {
     let startX: number;
     let startWidth: number;
+    const minRightWidth = 300;
+    const dividerWidth = 5;
 
     const onMouseMove = (e: MouseEvent) => {
+      const containerWidth = targetPanel.parentElement?.getBoundingClientRect().width || 0;
+      const maxWidth = containerWidth - minRightWidth - dividerWidth;
       const delta = e.clientX - startX;
-      const newWidth = Math.max(minWidth, startWidth + delta);
+      const newWidth = Math.min(maxWidth, Math.max(minWidth, startWidth + delta));
       targetPanel.style.flexBasis = `${newWidth}px`;
       targetPanel.style.flexGrow = "0";
       targetPanel.style.flexShrink = "0";
@@ -212,6 +227,7 @@ export class TaskTerminalView extends ItemView {
   async onClose(): Promise<void> {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.filterTimer) clearTimeout(this.filterTimer);
+    this.containerObserver?.disconnect();
     this.taskDetail?.unload();
     this.terminalPanel?.disposeAll();
   }

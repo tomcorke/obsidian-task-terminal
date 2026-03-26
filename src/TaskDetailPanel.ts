@@ -70,6 +70,31 @@ export class TaskDetailPanel {
       "vertical",
       false // new leaf to the right
     );
+
+    // Set 65:35 split ratio (task-terminal : editor)
+    // Defer so Obsidian's layout pass completes first
+    setTimeout(() => this.applySplitRatio(65, 35), 100);
+  }
+
+  private applySplitRatio(leftPct: number, rightPct: number): void {
+    if (!this.editorLeaf) return;
+    const parent = this.editorLeaf.parent as any;
+    if (!parent) return;
+
+    // Debug: log parent structure to find the right sizing mechanism
+    console.log("[task-terminal] split parent:", parent);
+    console.log("[task-terminal] split parent keys:", Object.keys(parent));
+    console.log("[task-terminal] split parent.direction:", parent.direction);
+    console.log("[task-terminal] split parent.children:", parent.children);
+    if (parent.children) {
+      for (const child of parent.children) {
+        console.log("[task-terminal] child keys:", Object.keys(child));
+        console.log("[task-terminal] child.dimension:", (child as any).dimension);
+        console.log("[task-terminal] child.size:", (child as any).size);
+        console.log("[task-terminal] child.width:", (child as any).width);
+        console.log("[task-terminal] child.containerEl style:", child.containerEl?.style?.cssText);
+      }
+    }
   }
 
   private hideEditorLeaf(): void {

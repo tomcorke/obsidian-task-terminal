@@ -18,7 +18,7 @@ const VALID_STATES: TaskState[] = [
 export class TaskParser {
   constructor(
     private app: App,
-    private basePath: string
+    readonly basePath: string
   ) {}
 
   parseFromFrontmatter(file: TFile): TaskFile | null {

@@ -62,6 +62,8 @@ let sessionCounter = 0;
 
 export class TerminalTab {
   session: TerminalSession;
+  onLabelChange?: () => void;
+  onProcessExit?: (code: number | null, signal: string | null) => void;
   private fitAddon: FitAddon;
   private resizeObserver: ResizeObserver;
   private _documentListeners: { event: string; handler: EventListener }[] = [];
@@ -97,6 +99,7 @@ export class TerminalTab {
       cursorBlink: true,
       fontSize: 13,
       fontFamily: "Menlo, Monaco, 'Courier New', monospace",
+      macOptionIsMeta: true,
       theme: {
         background: "#1e1e1e",
         foreground: "#d4d4d4",
@@ -111,12 +114,14 @@ export class TerminalTab {
     terminal.open(containerEl);
 
     // Prevent Obsidian from intercepting keyboard events when terminal is focused.
-    // IMPORTANT: We use bubble-phase on the container, NOT capture-phase on
-    // document. Capture-phase stopPropagation on document prevents the event
-    // from descending to xterm's textarea, breaking backspace/arrow keys
-    // (which xterm handles via keydown, not the input event).
-    // Bubble-phase on the container lets xterm process the event first,
-    // then stops it from reaching Obsidian's handlers above.
+    //
+    // Two layers:
+    // 1. Bubble-phase stopPropagation on container - catches most events after
+    //    xterm processes them, prevents Obsidian bubble-phase handlers.
+    // 2. Capture-phase listener on document for specific modifier combos that
+    //    Obsidian intercepts in its own capture-phase handlers (Shift+Enter,
+    //    Alt/Option+Arrow, etc). These need stopping before Obsidian sees them,
+    //    but we only block them when the terminal's textarea is focused.
     containerEl.addEventListener("keydown", (e: KeyboardEvent) => {
       e.stopPropagation();
     }, false);
@@ -124,8 +129,27 @@ export class TerminalTab {
       e.stopPropagation();
     }, false);
 
-    // No document-level listeners needed
-    this._documentListeners = [];
+    // Capture-phase interception for modifier combos Obsidian steals
+    const textareaEl = containerEl.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
+    const captureHandler = (e: KeyboardEvent) => {
+      if (!textareaEl || document.activeElement !== textareaEl) return;
+
+      const dominated =
+        // Shift+Enter (multiline input in Claude CLI)
+        (e.key === "Enter" && e.shiftKey) ||
+        // Option/Alt+Arrow (word navigation)
+        (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) ||
+        // Option/Alt+Backspace (delete word)
+        (e.altKey && e.key === "Backspace") ||
+        // Option/Alt+d (delete word forward)
+        (e.altKey && e.key === "d");
+
+      if (dominated) {
+        e.stopPropagation();
+      }
+    };
+    document.addEventListener("keydown", captureHandler, true);
+    this._documentListeners = [{ event: "keydown", handler: captureHandler as EventListener }];
 
     // Ensure clicking the terminal area gives xterm focus
     containerEl.addEventListener("click", () => {
@@ -148,6 +172,7 @@ export class TerminalTab {
         console.log("[task-terminal] Spawned pid:", proc.pid, "cols:", cols, "rows:", rows);
         this.session.process = proc;
         this.wireProcess(proc, terminal);
+        terminal.scrollToBottom();
       } catch (err) {
         console.error("[task-terminal] Failed to spawn:", err);
         terminal.write(`\r\n[Failed to spawn: ${err}]\r\n`);
@@ -195,11 +220,29 @@ export class TerminalTab {
       }
     });
 
+    // Detect Claude session rename in output stream.
+    // Check BEFORE terminal.write() so a hidden terminal can't block detection.
+    const renamePattern = /Session renamed to:\s*(.+)/;
+    // Strip ANSI CSI, OSC, and other escape sequences for clean matching
+    const stripAnsi = (s: string) =>
+      s.replace(/\x1b(?:\[[0-9;]*[a-zA-Z]|\][^\x07]*\x07|\(B)/g, "");
+
+    const checkRename = (data: Buffer) => {
+      const text = stripAnsi(data.toString());
+      const match = text.match(renamePattern);
+      if (match) {
+        this.session.label = match[1].trim();
+        this.onLabelChange?.();
+      }
+    };
+
     proc.stdout?.on("data", (data: Buffer) => {
+      checkRename(data);
       terminal.write(data);
     });
 
     proc.stderr?.on("data", (data: Buffer) => {
+      checkRename(data);
       terminal.write(data);
     });
 
@@ -262,14 +305,26 @@ export class TerminalTab {
 
   show(): void {
     this.session.containerEl.removeClass("hidden");
+    // Double-rAF: first frame makes the element visible and triggers layout,
+    // second frame has correct dimensions for fitAddon to measure.
     requestAnimationFrame(() => {
-      this.fitAddon.fit();
-      this.session.terminal.focus();
+      requestAnimationFrame(() => {
+        this.fitAddon.fit();
+        this.session.terminal.scrollToBottom();
+        this.session.terminal.focus();
+      });
     });
   }
 
   hide(): void {
     this.session.containerEl.addClass("hidden");
+  }
+
+  refit(): void {
+    if (this.session.containerEl.hasClass("hidden")) return;
+    requestAnimationFrame(() => {
+      try { this.fitAddon.fit(); } catch { /* ignore */ }
+    });
   }
 
   dispose(): void {
