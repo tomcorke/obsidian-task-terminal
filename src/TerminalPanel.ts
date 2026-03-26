@@ -294,8 +294,11 @@ export class TerminalPanel {
 
     const tabs = this.sessions.get(this.activeTask.path) || [];
 
+    // Container for session tabs (wraps)
+    const tabListEl = this.tabBarEl.createDiv({ cls: "terminal-tab-list" });
+
     for (let i = 0; i < tabs.length; i++) {
-      const tabEl = this.tabBarEl.createDiv({ cls: "terminal-tab" });
+      const tabEl = tabListEl.createDiv({ cls: "terminal-tab" });
       const isActive = i === this.activeTabIndex;
       if (isActive) tabEl.addClass("active");
 
@@ -432,20 +435,18 @@ export class TerminalPanel {
       tabEl.addEventListener("click", () => this.switchToTab(i));
     }
 
-    // Spacer between session tabs and new-tab buttons
-    const spacer = this.tabBarEl.createDiv({ cls: "terminal-tab-spacer" });
-    spacer.style.width = "12px";
-    spacer.style.flexShrink = "0";
+    // Container for new-tab buttons (pinned right)
+    const buttonsEl = this.tabBarEl.createDiv({ cls: "terminal-tab-buttons" });
 
     // New terminal button
-    const newBtn = this.tabBarEl.createDiv({
+    const newBtn = buttonsEl.createDiv({
       cls: "terminal-tab-btn",
       text: "+ Shell",
     });
     newBtn.addEventListener("click", () => this.createTerminal());
 
     // Launch Claude button
-    const claudeBtn = this.tabBarEl.createDiv({
+    const claudeBtn = buttonsEl.createDiv({
       cls: "terminal-tab-btn claude-btn",
     });
     claudeBtn.appendChild(createClaudeLogo());
@@ -462,7 +463,7 @@ export class TerminalPanel {
     });
 
     // Launch Claude with lightweight task context prompt
-    const taskBtn = this.tabBarEl.createDiv({
+    const taskBtn = buttonsEl.createDiv({
       cls: "terminal-tab-btn claude-btn task-agent-btn",
     });
     taskBtn.appendChild(createClaudeLogo());

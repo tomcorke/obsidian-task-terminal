@@ -643,7 +643,7 @@ export class TerminalTab {
     // Merge screen lines and recent output for comprehensive detection
     const sources = [
       ...(screenLines || []),
-      ...this._recentCleanLines.slice(-15),
+      ...(this._recentCleanLines || []).slice(-15),
     ];
     if (sources.length === 0) return false;
 
