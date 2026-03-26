@@ -412,7 +412,10 @@
 
 .task-card-move-top {
   display: none;
-  flex-shrink: 0;
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
   width: 20px;
   height: 20px;
   line-height: 20px;
@@ -438,7 +441,7 @@
   position: absolute;
   top: 0;
   right: 0;
-  z-index: 0;
+  z-index: 1;
   min-width: 16px;
   height: 16px;
   line-height: 16px;
@@ -448,11 +451,10 @@
   border-radius: 8px;
   color: white;
   padding: 0 4px;
-  transition: right 0.15s ease;
 }
 
 .task-card:hover .task-card-session-badge {
-  right: 24px;
+  right: 0;
 }
 
 .task-card-session-badge.badge-claude {
