@@ -73,14 +73,8 @@ export class TaskTerminalView extends ItemView {
     // Task list
     const taskListEl = leftPanel.createDiv({ cls: "task-list-container" });
 
-    // === DIVIDER 1 ===
-    const divider1 = container.createDiv({ cls: "task-terminal-divider" });
-
-    // === MIDDLE PANEL (task detail) ===
-    const middlePanel = container.createDiv({ cls: "task-terminal-middle-panel" });
-
-    // === DIVIDER 2 ===
-    const divider2 = container.createDiv({ cls: "task-terminal-divider" });
+    // === DIVIDER ===
+    const divider = container.createDiv({ cls: "task-terminal-divider" });
 
     // === RIGHT PANEL (terminals) ===
     const rightPanel = container.createDiv({ cls: "task-terminal-right-panel" });
@@ -98,7 +92,10 @@ export class TaskTerminalView extends ItemView {
     // Initialize components
     this.terminalPanel = new TerminalPanel(rightPanel, this.plugin.settings, vaultPath);
 
-    this.taskDetail = new TaskDetailPanel(middlePanel, this.app);
+    // TaskDetailPanel manages a separate workspace leaf for the editor
+    // We pass a placeholder container for when no task is selected
+    const detailPlaceholder = leftPanel.createDiv({ cls: "task-detail-placeholder-inline" });
+    this.taskDetail = new TaskDetailPanel(detailPlaceholder, this.app, this.leaf);
 
     this.taskList = new TaskListPanel(
       taskListEl,
@@ -118,9 +115,8 @@ export class TaskTerminalView extends ItemView {
 
     await this.taskList.render();
 
-    // Setup resizers
-    this.setupResizer(divider1, leftPanel, 200);
-    this.setupResizer(divider2, middlePanel, 250);
+    // Setup resizer
+    this.setupResizer(divider, leftPanel, 200);
 
     // Vault events
     this.registerEvent(
@@ -160,9 +156,7 @@ export class TaskTerminalView extends ItemView {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(async () => {
       await this.taskList.render();
-      if (modifiedPath) {
-        await this.taskDetail.refreshIfShowing(modifiedPath);
-      }
+      // Editor leaf auto-refreshes, no need to manually refresh detail
     }, 150);
   }
 
