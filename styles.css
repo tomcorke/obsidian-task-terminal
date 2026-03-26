@@ -412,10 +412,7 @@
 
 .task-card-move-top {
   display: none;
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 1;
+  flex-shrink: 0;
   width: 20px;
   height: 20px;
   line-height: 20px;
@@ -423,8 +420,9 @@
   font-size: 12px;
   border-radius: 3px;
   cursor: pointer;
-  color: var(--text-muted);
-  background: var(--background-modifier-hover);
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+  opacity: 0.85;
 }
 
 .task-card:hover .task-card-move-top {
@@ -432,9 +430,7 @@
 }
 
 .task-card-move-top:hover {
-  color: var(--text-normal);
-  background: var(--interactive-accent);
-  color: white;
+  opacity: 1;
 }
 
 /* Session count badge */
