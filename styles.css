@@ -308,24 +308,6 @@
   50% { opacity: 1; }
 }
 
-/* Idle: Claude is at the prompt - small arc, slow drift */
-.task-card.claude-idle .task-card-session-badge {
-  position: relative;
-  overflow: visible;
-}
-
-.task-card.claude-idle .task-card-session-badge::after {
-  content: "";
-  position: absolute;
-  inset: -3px;
-  border-radius: 50%;
-  background: conic-gradient(#60a5fa 0deg, #60a5fa 40deg, transparent 40deg, transparent 360deg);
-  -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
-  mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
-  animation: badge-spin-linear 6s linear infinite;
-  pointer-events: none;
-}
-
 /* Active: Claude is working - arc that speeds up and slows down */
 .task-card.claude-active .task-card-session-badge {
   position: relative;
@@ -341,10 +323,6 @@
   border-top-color: #30a46c;
   animation: badge-spin-ease 1.5s ease-in-out infinite;
   pointer-events: none;
-}
-
-@keyframes badge-spin-linear {
-  to { transform: rotate(360deg); }
 }
 
 @keyframes badge-spin-ease {
