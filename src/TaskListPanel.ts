@@ -71,7 +71,9 @@ export class TaskListPanel {
     private onOrderChange: (order: TaskOrder) => void,
     private getSessionCount?: (path: string) => { shells: number; claudes: number },
     private onSplitComplete?: (newPath: string, originalTitle: string) => void,
-    private onCloseSessions?: (path: string) => void
+    private onCloseSessions?: (path: string) => void,
+    private hasResumableSession?: (taskPath: string) => boolean,
+    private onResumeSession?: (task: TaskFile) => void
   ) {
     this.containerEl.addClass("task-list-panel");
 
@@ -125,7 +127,9 @@ export class TaskListPanel {
           (t) => this.splitTask(t, col),
           (t) => this.deleteTask(t),
           (t) => this.completeAndClose(t),
-          this.ingestingPaths.has(task.path)
+          this.ingestingPaths.has(task.path),
+          this.hasResumableSession?.(task.path) || false,
+          this.onResumeSession
         );
         this.cards.set(task.path, card);
         cardsEl.appendChild(card.el);

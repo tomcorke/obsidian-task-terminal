@@ -64,6 +64,7 @@ let sessionCounter = 0;
 
 export class TerminalTab {
   session: TerminalSession;
+  claudeSessionId: string | null = null;
   onLabelChange?: () => void;
   onProcessExit?: (code: number | null, signal: string | null) => void;
   onStateChange?: (state: ClaudeState) => void;
@@ -86,8 +87,10 @@ export class TerminalTab {
     label: string,
     private taskPath: string | null,
     preCommand?: string,
-    private commandArgs?: string[]
+    private commandArgs?: string[],
+    claudeSessionId?: string | null
   ) {
+    this.claudeSessionId = claudeSessionId || null;
     // Expand ~ in cwd
     const home = process.env.HOME || process.env.USERPROFILE || "";
     if (cwd.startsWith("~/") || cwd === "~") {
@@ -390,6 +393,7 @@ export class TerminalTab {
       id: this.session.id,
       taskPath: this.session.taskPath,
       label: this.session.label,
+      claudeSessionId: this.claudeSessionId,
       terminal: this.session.terminal,
       fitAddon: this.fitAddon,
       containerEl: this.session.containerEl,
@@ -446,6 +450,7 @@ export class TerminalTab {
     });
     tab.resizeObserver.observe(stored.containerEl);
 
+    tab.claudeSessionId = stored.claudeSessionId || null;
     tab.session = {
       id: stored.id,
       taskPath: stored.taskPath,
@@ -556,13 +561,6 @@ export class TerminalTab {
   private _trackOutput(data: Buffer | string): void {
     if (!this._isClaudeSession) return;
 
-    this._lastOutputTime = Date.now();
-
-    // If we were idle or waiting, we're now active again
-    if (this._claudeState !== "active") {
-      this._setClaudeState("active");
-    }
-
     // Buffer recent clean lines for pattern matching (keep last 30 lines)
     const stripAnsi = (s: string) =>
       s.replace(/\x1b\[(\d+)C/g, (_m, n) => " ".repeat(parseInt(n, 10)))
@@ -570,28 +568,67 @@ export class TerminalTab {
 
     const text = typeof data === "string" ? data : data.toString("utf8");
     const lines = stripAnsi(text).split(/\r\n|\n|\r/).filter(l => l.trim().length > 0);
+
     this._recentCleanLines.push(...lines);
     if (this._recentCleanLines.length > 30) {
       this._recentCleanLines = this._recentCleanLines.slice(-30);
     }
+
+    // Don't use output timing for state - _checkState reads the terminal
+    // buffer directly instead, which is immune to status line redraw noise.
+  }
+
+  /**
+   * Read the visible terminal screen content for state detection.
+   * Uses xterm.js buffer API to get the actual rendered lines, which is
+   * far more reliable than trying to classify raw stdout chunks.
+   */
+  private _readTerminalScreen(): string[] {
+    const buf = this.session.terminal.buffer.active;
+    const lines: string[] = [];
+    // Read from the bottom up, stop after finding content or hitting 30 lines
+    const totalRows = buf.length;
+    for (let i = totalRows - 1; i >= Math.max(0, totalRows - 30); i--) {
+      const line = buf.getLine(i);
+      if (line) {
+        const text = line.translateToString(true).trim();
+        if (text.length > 0) lines.unshift(text);
+      }
+    }
+    return lines;
   }
 
   private _checkState(): void {
     if (!this._isClaudeSession) return;
 
-    const now = Date.now();
-    const elapsed = now - this._lastOutputTime;
+    // Read the terminal screen directly to determine Claude's state.
+    // This avoids the fundamental problem of classifying raw stdout
+    // (status line redraws produce continuous output even when idle).
+    const screenLines = this._readTerminalScreen();
+    if (screenLines.length === 0) return;
 
-    if (elapsed < 3000) {
-      // Output is still flowing or just stopped - stay active
+    // Check for waiting patterns first (highest priority)
+    if (this._looksLikeWaiting()) {
+      this._setClaudeState("waiting");
       return;
     }
 
-    // Output has stopped for 3+ seconds - classify
-    if (this._looksLikeWaiting()) {
-      this._setClaudeState("waiting");
-    } else if (elapsed > 5000) {
+    // Check if Claude is at its input prompt (idle).
+    // Claude Code shows a ">" prompt when waiting for user input.
+    // The prompt appears as the last content line before the status bar.
+    // Also check for shell prompts ($, %) for non-Claude terminals that
+    // got relabeled.
+    const lastLines = screenLines.slice(-5);
+    const atPrompt = lastLines.some(line =>
+      /^\s*>\s*$/.test(line) ||           // Claude's bare ">" prompt
+      /^\s*\$\s*$/.test(line) ||          // shell $ prompt
+      /^\s*%\s*$/.test(line)              // zsh % prompt
+    );
+
+    if (atPrompt) {
       this._setClaudeState("idle");
+    } else {
+      this._setClaudeState("active");
     }
   }
 

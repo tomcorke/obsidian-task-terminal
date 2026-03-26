@@ -1,6 +1,6 @@
 import type { TaskFile, TaskTerminalSettings, ClaudeState } from "./types";
 import { TerminalTab } from "./TerminalTab";
-import { SessionStore } from "./SessionStore";
+import { SessionStore, type PersistedSession } from "./SessionStore";
 
 /** Claude sparkle logomark as inline SVG */
 function createClaudeLogo(size = 14): SVGSVGElement {
@@ -30,8 +30,12 @@ export class TerminalPanel {
   private terminalWrapperEl: HTMLElement;
   private placeholderEl: HTMLElement;
   private vaultPath: string;
+  private persistedSessions: PersistedSession[] = [];
   onSessionChange?: () => void;
   onClaudeStateChange?: (taskPath: string, state: ClaudeState) => void;
+  onPersistRequest?: () => void;
+  getAllTasks?: () => Promise<TaskFile[]>;
+  onSelectTask?: (task: TaskFile) => void;
 
   constructor(
     private containerEl: HTMLElement,
@@ -172,7 +176,7 @@ export class TerminalPanel {
     this.onSessionChange?.();
   }
 
-  private createTerminalWithArgs(command: string[], label: string): void {
+  private createTerminalWithArgs(command: string[], label: string, claudeSessionId?: string): void {
     if (!this.activeTask) return;
 
     const taskPath = this.activeTask.path;
@@ -186,7 +190,8 @@ export class TerminalPanel {
       label,
       taskPath,
       undefined,
-      command
+      command,
+      claudeSessionId
     );
     tab.onLabelChange = () => {
       if (this.activeTask?.path === taskPath) this.renderTabBar();
@@ -361,10 +366,13 @@ export class TerminalPanel {
     claudeBtn.appendText("Claude");
     claudeBtn.addEventListener("click", () => {
       const tabs = this.sessions.get(this.activeTask!.path) || [];
+      const sessionId = crypto.randomUUID();
       this.createTerminalWithArgs(
-        [...this.getClaudeBaseArgs()],
-        `Claude ${tabs.length + 1}`
+        [...this.getClaudeBaseArgs(), "--session-id", sessionId],
+        `Claude ${tabs.length + 1}`,
+        sessionId
       );
+      this.onPersistRequest?.();
     });
 
     // Launch Claude with lightweight task context prompt
@@ -440,10 +448,14 @@ export class TerminalPanel {
     const task = this.activeTask;
     const prompt = this.buildTaskPrompt(task, extraLines);
     const tabs = this.sessions.get(task.path) || [];
+    const sessionId = crypto.randomUUID();
     this.createTerminalWithArgs(
-      [...this.getClaudeBaseArgs(), prompt],
-      `Agent ${tabs.length + 1}`
+      [...this.getClaudeBaseArgs(), "--session-id", sessionId, "--name", task.title, prompt],
+      `Agent ${tabs.length + 1}`,
+      sessionId
     );
+    // Persist immediately so metadata survives crashes
+    this.onPersistRequest?.();
   }
 
   /**
@@ -499,6 +511,13 @@ export class TerminalPanel {
         this.restartTaskAgent(tabIndex);
       });
     }
+
+    // "Move to task..." submenu
+    const moveItem = menu.createDiv({ cls: "tab-context-menu-item", text: "Move to task..." });
+    moveItem.addEventListener("click", async () => {
+      menu.remove();
+      await this.showMoveToTaskMenu(e, tabIndex);
+    });
 
     document.body.appendChild(menu);
     const dismiss = (ev: Event) => {
@@ -584,9 +603,10 @@ export class TerminalPanel {
     tabs[tabIndex].dispose();
     tabs.splice(tabIndex, 1);
 
-    // Create new task agent tab
+    // Create new task agent tab with fresh session ID
     const prompt = this.buildTaskPrompt(task);
     const cwd = this.settings.defaultTerminalCwd || this.vaultPath;
+    const sessionId = crypto.randomUUID();
     const newTab = new TerminalTab(
       this.terminalWrapperEl,
       this.settings.defaultShell,
@@ -594,7 +614,8 @@ export class TerminalPanel {
       oldLabel,
       task.path,
       undefined,
-      [...this.getClaudeBaseArgs(), prompt]
+      [...this.getClaudeBaseArgs(), "--session-id", sessionId, "--name", task.title, prompt],
+      sessionId
     );
     newTab.onLabelChange = () => {
       if (this.activeTask?.path === task.path) this.renderTabBar();
@@ -616,6 +637,90 @@ export class TerminalPanel {
     this.activeTabIndex = tabIndex;
     this.renderTabBar();
     this.onSessionChange?.();
+  }
+
+  private async showMoveToTaskMenu(e: MouseEvent, tabIndex: number): Promise<void> {
+    if (!this.activeTask || !this.getAllTasks) return;
+    const currentPath = this.activeTask.path;
+
+    const tasks = await this.getAllTasks();
+    const otherTasks = tasks.filter(t => t.path !== currentPath);
+    if (otherTasks.length === 0) return;
+
+    document.querySelector(".tab-context-menu")?.remove();
+
+    const menu = document.createElement("div");
+    menu.className = "tab-context-menu";
+    menu.style.position = "fixed";
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    menu.style.zIndex = "1000";
+    menu.style.maxHeight = "300px";
+    menu.style.overflowY = "auto";
+
+    for (const task of otherTasks) {
+      const item = menu.createDiv({ cls: "tab-context-menu-item" });
+      item.textContent = task.title;
+      item.title = task.path;
+      item.addEventListener("click", () => {
+        menu.remove();
+        this.moveTabToTask(tabIndex, task);
+      });
+    }
+
+    document.body.appendChild(menu);
+    const dismiss = (ev: Event) => {
+      if (!menu.contains(ev.target as Node)) {
+        menu.remove();
+        document.removeEventListener("click", dismiss, true);
+        document.removeEventListener("contextmenu", dismiss, true);
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener("click", dismiss, true);
+      document.addEventListener("contextmenu", dismiss, true);
+    }, 0);
+  }
+
+  private moveTabToTask(tabIndex: number, targetTask: TaskFile): void {
+    if (!this.activeTask) return;
+    const sourcePath = this.activeTask.path;
+    const sourceTabs = this.sessions.get(sourcePath) || [];
+    if (tabIndex < 0 || tabIndex >= sourceTabs.length) return;
+
+    // Remove tab from source
+    const [tab] = sourceTabs.splice(tabIndex, 1);
+    if (sourceTabs.length === 0) {
+      this.sessions.delete(sourcePath);
+    }
+
+    // Update the tab's task path
+    tab.session.taskPath = targetTask.path;
+
+    // Add to destination as rightmost tab
+    const destTabs = this.sessions.get(targetTask.path) || [];
+    destTabs.push(tab);
+    this.sessions.set(targetTask.path, destTabs);
+
+    // Notify state changes for the source task (badges etc)
+    this.onClaudeStateChange?.(sourcePath, this.getClaudeState(sourcePath));
+    this.onSessionChange?.();
+
+    // Select the target task in the UI (this calls setTask internally)
+    if (this.onSelectTask) {
+      this.onSelectTask(targetTask);
+    } else {
+      this.setTask(targetTask);
+    }
+
+    // Now override to show the moved tab (last in list)
+    this.hideAllTerminals();
+    tab.show();
+    this.activeTabIndex = destTabs.length - 1;
+    this.renderTabBar();
+
+    this.onClaudeStateChange?.(targetTask.path, this.getClaudeState(targetTask.path));
+    this.onPersistRequest?.();
   }
 
   /** Return the count of shell and Claude tabs for a given task path */
@@ -707,6 +812,50 @@ export class TerminalPanel {
     );
     // Clear local references without disposing
     this.sessions.clear();
+  }
+
+  /** Set persisted sessions loaded from disk. */
+  setPersistedSessions(sessions: PersistedSession[]): void {
+    this.persistedSessions = sessions;
+  }
+
+  /** Get persisted session for a task path (most recent first). */
+  getPersistedSession(taskPath: string): PersistedSession | null {
+    return this.persistedSessions.find(s => s.taskPath === taskPath) || null;
+  }
+
+  /** Check if any task has a resumable persisted session. */
+  hasPersistedSession(taskPath: string): boolean {
+    return this.persistedSessions.some(s => s.taskPath === taskPath);
+  }
+
+  /** Resume a persisted Claude session for a task. */
+  resumeSession(task: TaskFile): void {
+    const persisted = this.getPersistedSession(task.path);
+    if (!persisted) return;
+
+    // Set as active task if not already
+    if (this.activeTask?.path !== task.path) {
+      this.setTask(task);
+    }
+
+    const sessionId = crypto.randomUUID();
+    const tabs = this.sessions.get(task.path) || [];
+    this.createTerminalWithArgs(
+      [...this.getClaudeBaseArgs(), "--resume", persisted.claudeSessionId, "--session-id", sessionId, "--name", task.title],
+      `Agent ${tabs.length + 1} (resumed)`,
+      sessionId
+    );
+
+    // Remove this persisted session since it's been resumed
+    this.persistedSessions = this.persistedSessions.filter(s => s !== persisted);
+    this.onPersistRequest?.();
+    this.onSessionChange?.();
+  }
+
+  /** Expose sessions map for persistence. */
+  getSessions(): Map<string, TerminalTab[]> {
+    return this.sessions;
   }
 
   disposeAll(): void {

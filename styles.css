@@ -463,6 +463,30 @@
   background: #3b82f6;
 }
 
+/* Resume badge - shown when a persisted session can be resumed */
+.task-card-resume-badge {
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 8px;
+  color: var(--text-muted);
+  background: var(--background-modifier-border);
+  padding: 0 3px;
+  cursor: pointer;
+  opacity: 0.7;
+  transition: opacity 0.15s;
+}
+
+.task-card-resume-badge:hover {
+  opacity: 1;
+  color: var(--text-normal);
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
 .task-card-session-badge.badge-mixed {
   background: #8b5cf6;
 }

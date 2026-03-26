@@ -6,6 +6,7 @@ import { TaskListPanel } from "./TaskListPanel";
 import { TaskDetailPanel } from "./TaskDetailPanel";
 import { PromptBox } from "./PromptBox";
 import { TerminalPanel } from "./TerminalPanel";
+import { SessionStore } from "./SessionStore";
 import type TaskTerminalPlugin from "./main";
 
 export class TaskTerminalView extends ItemView {
@@ -104,6 +105,19 @@ export class TaskTerminalView extends ItemView {
     this.terminalPanel.onClaudeStateChange = (taskPath, state) => {
       this.taskList?.setClaudeState(taskPath, state);
     };
+    this.terminalPanel.onPersistRequest = () => {
+      SessionStore.saveToDisk(this.plugin, this.terminalPanel.getSessions());
+    };
+    this.terminalPanel.getAllTasks = () => this.parser.loadAllTasks();
+    this.terminalPanel.onSelectTask = (task) => {
+      this.taskList.selectTaskByPath(task.path);
+    };
+
+    // Load persisted sessions from disk and pass to terminal panel
+    const persisted = await SessionStore.loadFromDisk(this.plugin);
+    // Filter out sessions whose task files no longer exist
+    const validPersisted = persisted.filter(s => this.app.vault.getAbstractFileByPath(s.taskPath));
+    this.terminalPanel.setPersistedSessions(validPersisted);
 
     // TaskDetailPanel manages a separate workspace leaf for the editor
     // We pass a placeholder container for when no task is selected
@@ -137,7 +151,9 @@ export class TaskTerminalView extends ItemView {
           "- Rename the file to match the new title (TASK-YYYYMMDD-HHMM-new-slug.md pattern)",
         ]);
       },
-      (path) => this.terminalPanel.closeAllSessions(path)
+      (path) => this.terminalPanel.closeAllSessions(path),
+      (taskPath) => this.terminalPanel.hasPersistedSession(taskPath),
+      (task) => this.terminalPanel.resumeSession(task)
     );
 
     await this.taskList.render();
@@ -554,6 +570,10 @@ export class TaskTerminalView extends ItemView {
       // Sessions already stashed - don't kill processes
       console.log("[task-terminal] Reload: skipping terminal disposal");
     } else {
+      // Persist Claude session metadata to disk before killing processes
+      if (this.terminalPanel) {
+        await SessionStore.saveToDisk(this.plugin, this.terminalPanel.getSessions());
+      }
       this.terminalPanel?.disposeAll();
     }
   }

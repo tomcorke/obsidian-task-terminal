@@ -27,7 +27,9 @@ export class TaskCard {
     private onSplitTask?: (task: TaskFile) => void,
     private onDeleteTask?: (task: TaskFile) => void,
     private onCompleteAndClose?: (task: TaskFile) => void,
-    private ingesting?: boolean
+    private ingesting?: boolean,
+    private hasResumableSession?: boolean,
+    private onResumeSession?: (task: TaskFile) => void
   ) {
     this.el = this.render();
   }
@@ -64,6 +66,17 @@ export class TaskCard {
         }
         this.sessionBadge = badge;
       }
+    }
+
+    // Resumable session indicator (shown when no active sessions but a persisted one exists)
+    if (this.hasResumableSession && !this.sessionBadge) {
+      const resumeBadge = actions.createDiv({ cls: "task-card-resume-badge" });
+      resumeBadge.textContent = "\u21BA"; // ↺ circular arrow
+      resumeBadge.title = "Resumable Claude session available";
+      resumeBadge.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.onResumeSession?.(this.task);
+      });
     }
 
     // Move-to-top button (visible on hover)
@@ -152,6 +165,15 @@ export class TaskCard {
 
   private showContextMenu(x: number, y: number): void {
     const items: MenuItem[] = [];
+
+    // Resume session (if available)
+    if (this.hasResumableSession && this.onResumeSession) {
+      items.push({
+        label: "Resume Last Session",
+        action: () => this.onResumeSession?.(this.task),
+      });
+      items.push({ separator: true });
+    }
 
     // Move to top
     items.push({
