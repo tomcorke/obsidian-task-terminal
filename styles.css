@@ -285,28 +285,29 @@
 
 /* === Claude state indicators on task cards === */
 
-/* Waiting: Claude needs user input - attention-grabbing amber pulse */
+/* Waiting: Claude needs user input - pulsing gradient overlay on right edge */
 .task-card.claude-waiting {
-  animation: claude-waiting-pulse 1.5s ease-in-out infinite;
+  position: relative;
+  overflow: hidden;
   border-left-color: #f59e0b;
 }
 
-.task-card.claude-waiting .task-card-session-badge {
-  animation: badge-flash 1s ease-in-out infinite;
+.task-card.claude-waiting::before {
+  content: "";
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 40%;
+  background: linear-gradient(to right, transparent, rgba(245, 158, 11, 0.25));
+  animation: waiting-glow 2s ease-in-out infinite;
+  pointer-events: none;
+  z-index: 1;
 }
 
-@keyframes claude-waiting-pulse {
-  0%, 100% {
-    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
-  }
-  50% {
-    box-shadow: 0 0 8px 2px rgba(245, 158, 11, 0.3);
-  }
-}
-
-@keyframes badge-flash {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.4; }
+@keyframes waiting-glow {
+  0%, 100% { opacity: 0.15; }
+  50% { opacity: 1; }
 }
 
 /* Idle: Claude is at the prompt - small arc, slow drift */
@@ -640,6 +641,18 @@
 
 .terminal-tab:not(.active) {
   opacity: 0.6;
+}
+
+.terminal-tab.dragging {
+  opacity: 0.4;
+}
+
+.terminal-tab.drag-over-left {
+  border-left: 2px solid var(--interactive-accent) !important;
+}
+
+.terminal-tab.drag-over-right {
+  border-right: 2px solid var(--interactive-accent) !important;
 }
 
 .terminal-tab:hover {

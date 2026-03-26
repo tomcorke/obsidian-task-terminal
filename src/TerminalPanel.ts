@@ -31,6 +31,7 @@ export class TerminalPanel {
   private placeholderEl: HTMLElement;
   private vaultPath: string;
   private persistedSessions: PersistedSession[] = [];
+  private dragSourceIndex: number | null = null;
   onSessionChange?: () => void;
   onClaudeStateChange?: (taskPath: string, state: ClaudeState) => void;
   onPersistRequest?: () => void;
@@ -231,6 +232,33 @@ export class TerminalPanel {
     this.renderTabBar();
   }
 
+  private reorderTab(fromIndex: number, toIndex: number, dropAfter: boolean): void {
+    if (!this.activeTask) return;
+    const tabs = this.sessions.get(this.activeTask.path) || [];
+    if (fromIndex < 0 || fromIndex >= tabs.length) return;
+    if (toIndex < 0 || toIndex >= tabs.length) return;
+
+    // Remember which tab object is currently active
+    const activeTabObj = tabs[this.activeTabIndex];
+
+    // Remove the dragged tab
+    const [movedTab] = tabs.splice(fromIndex, 1);
+
+    // Calculate insertion index after removal
+    let insertAt = toIndex;
+    if (fromIndex < toIndex) insertAt--;
+    if (dropAfter) insertAt++;
+
+    tabs.splice(insertAt, 0, movedTab);
+
+    // Update activeTabIndex to follow the previously active tab
+    this.activeTabIndex = tabs.indexOf(activeTabObj);
+
+    this.renderTabBar();
+    this.onSessionChange?.();
+    this.onPersistRequest?.();
+  }
+
   private closeTab(index: number): void {
     if (!this.activeTask) return;
     const tabs = this.sessions.get(this.activeTask.path) || [];
@@ -270,6 +298,58 @@ export class TerminalPanel {
       const tabEl = this.tabBarEl.createDiv({ cls: "terminal-tab" });
       const isActive = i === this.activeTabIndex;
       if (isActive) tabEl.addClass("active");
+
+      // Drag-and-drop reordering
+      tabEl.draggable = true;
+      tabEl.dataset.tabIndex = String(i);
+      tabEl.addEventListener("dragstart", (e) => {
+        this.dragSourceIndex = i;
+        tabEl.addClass("dragging");
+        e.dataTransfer?.setData("text/plain", String(i));
+        if (e.dataTransfer) e.dataTransfer.effectAllowed = "move";
+      });
+      tabEl.addEventListener("dragend", () => {
+        this.dragSourceIndex = null;
+        tabEl.removeClass("dragging");
+        // Clean up any lingering drop indicators
+        this.tabBarEl.querySelectorAll(".terminal-tab").forEach(el => {
+          (el as HTMLElement).removeClass("drag-over-left");
+          (el as HTMLElement).removeClass("drag-over-right");
+        });
+      });
+      tabEl.addEventListener("dragover", (e) => {
+        if (this.dragSourceIndex === null || this.dragSourceIndex === i) {
+          return;
+        }
+        e.preventDefault();
+        if (e.dataTransfer) e.dataTransfer.dropEffect = "move";
+        // Show drop indicator based on cursor position relative to tab center
+        const rect = tabEl.getBoundingClientRect();
+        const midX = rect.left + rect.width / 2;
+        tabEl.removeClass("drag-over-left");
+        tabEl.removeClass("drag-over-right");
+        if (e.clientX < midX) {
+          tabEl.addClass("drag-over-left");
+        } else {
+          tabEl.addClass("drag-over-right");
+        }
+      });
+      tabEl.addEventListener("dragleave", () => {
+        tabEl.removeClass("drag-over-left");
+        tabEl.removeClass("drag-over-right");
+      });
+      tabEl.addEventListener("drop", (e) => {
+        e.preventDefault();
+        tabEl.removeClass("drag-over-left");
+        tabEl.removeClass("drag-over-right");
+        if (this.dragSourceIndex === null || this.dragSourceIndex === i) return;
+        // Determine insert position based on drop side
+        const rect = tabEl.getBoundingClientRect();
+        const midX = rect.left + rect.width / 2;
+        const dropAfter = e.clientX >= midX;
+        this.reorderTab(this.dragSourceIndex, i, dropAfter);
+        this.dragSourceIndex = null;
+      });
 
       const labelSpan = tabEl.createSpan({
         cls: "terminal-tab-label",

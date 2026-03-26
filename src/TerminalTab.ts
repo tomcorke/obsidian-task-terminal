@@ -607,8 +607,10 @@ export class TerminalTab {
     const screenLines = this._readTerminalScreen();
     if (screenLines.length === 0) return;
 
-    // Check for waiting patterns first (highest priority)
-    if (this._looksLikeWaiting()) {
+    // Check for waiting patterns first (highest priority).
+    // Check both the screen buffer (reliable, shows current UI) and recent
+    // output lines (catches patterns that may have scrolled off screen).
+    if (this._looksLikeWaiting(screenLines)) {
       this._setClaudeState("waiting");
       return;
     }
@@ -632,30 +634,44 @@ export class TerminalTab {
     }
   }
 
-  /** Check if recent output looks like Claude is waiting for user input. */
-  private _looksLikeWaiting(): boolean {
-    const lines = this._recentCleanLines.slice(-15);
-    if (lines.length === 0) return false;
+  /**
+   * Check if Claude is waiting for user input by inspecting both the terminal
+   * screen buffer and recent output lines. The screen buffer is the primary
+   * source since it shows the current rendered state.
+   */
+  private _looksLikeWaiting(screenLines?: string[]): boolean {
+    // Merge screen lines and recent output for comprehensive detection
+    const sources = [
+      ...(screenLines || []),
+      ...this._recentCleanLines.slice(-15),
+    ];
+    if (sources.length === 0) return false;
 
-    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 10); i--) {
-      const line = lines[i].trim();
+    // Check the last N lines from each source
+    const tail = sources.slice(-20);
+
+    for (let i = tail.length - 1; i >= Math.max(0, tail.length - 15); i--) {
+      const line = tail[i].trim();
+
+      // Interactive selection UI: "Enter to select", "↑/↓ to navigate"
+      if (/Enter to select|to navigate/i.test(line)) return true;
 
       // Permission prompt patterns: "Allow", "allowOnce", "denyOnce"
       if (/\bAllow\b.*\?/i.test(line)) return true;
       if (/\ballowOnce\b|\bdenyOnce\b|\ballowAlways\b/i.test(line)) return true;
 
-      // AskUserQuestion patterns: numbered options "(1)", "(2)", etc.
+      // AskUserQuestion patterns: numbered options with ">" selector or "(N)"
+      if (/^\s*[>❯]\s*\d+\.\s+\S/.test(line)) return true;
       if (/^\s*\(?\d+\)?\s+\S/.test(line) && i > 0) {
-        // Check if a preceding line ends with "?"
         for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
-          if (lines[j].trim().endsWith("?")) return true;
+          if (tail[j].trim().endsWith("?")) return true;
         }
       }
 
-      // Generic question pattern: line ends with "?" and is the last substantial line
-      if (i >= lines.length - 3 && line.endsWith("?") && line.length > 10) return true;
+      // Generic question pattern: line ends with "?" and is near the bottom
+      if (i >= tail.length - 5 && line.endsWith("?") && line.length > 10) return true;
 
-      // "Yes" / "No" option pair in recent output
+      // "Yes" / "No" option pair
       if (/^\s*(Yes|No)\s*$/i.test(line)) return true;
     }
 
