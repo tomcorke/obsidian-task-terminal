@@ -331,15 +331,12 @@ export class TerminalPanel {
         this.closeTab(i);
       });
 
-      // Context menu for task agent tabs
-      const label = tabs[i].session.label.toLowerCase();
-      if (label.startsWith("agent")) {
-        tabEl.addEventListener("contextmenu", (e) => {
-          e.preventDefault();
-          e.stopPropagation();
-          this.showTabContextMenu(e, i);
-        });
-      }
+      // Context menu for all tabs
+      tabEl.addEventListener("contextmenu", (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        this.showTabContextMenu(e, i);
+      });
 
       tabEl.addEventListener("click", () => this.switchToTab(i));
     }
@@ -487,11 +484,22 @@ export class TerminalPanel {
     menu.style.top = `${e.clientY}px`;
     menu.style.zIndex = "1000";
 
-    const item = menu.createDiv({ cls: "tab-context-menu-item", text: "Restart Task Agent" });
-    item.addEventListener("click", () => {
+    const renameItem = menu.createDiv({ cls: "tab-context-menu-item", text: "Rename" });
+    renameItem.addEventListener("click", () => {
       menu.remove();
-      this.restartTaskAgent(tabIndex);
+      this.switchToTab(tabIndex);
+      // Trigger inline rename on the tab after re-render
+      requestAnimationFrame(() => this.enterTabRename(tabIndex));
     });
+
+    const isAgent = tabs[tabIndex].session.label.toLowerCase().startsWith("agent");
+    if (isAgent) {
+      const restartItem = menu.createDiv({ cls: "tab-context-menu-item", text: "Restart Task Agent" });
+      restartItem.addEventListener("click", () => {
+        menu.remove();
+        this.restartTaskAgent(tabIndex);
+      });
+    }
 
     document.body.appendChild(menu);
     const dismiss = (ev: Event) => {
@@ -505,6 +513,64 @@ export class TerminalPanel {
       document.addEventListener("click", dismiss, true);
       document.addEventListener("contextmenu", dismiss, true);
     }, 0);
+  }
+
+  private enterTabRename(tabIndex: number): void {
+    if (!this.activeTask) return;
+    const tabs = this.sessions.get(this.activeTask.path) || [];
+    if (tabIndex < 0 || tabIndex >= tabs.length) return;
+
+    // Find the tab element in the tab bar
+    const tabEls = this.tabBarEl.querySelectorAll(".terminal-tab");
+    const tabEl = tabEls[tabIndex] as HTMLElement | undefined;
+    if (!tabEl) return;
+
+    const labelSpan = tabEl.querySelector(".terminal-tab-label") as HTMLElement | null;
+    if (!labelSpan) return;
+
+    // Prevent double-edit
+    if (tabEl.querySelector(".terminal-tab-edit")) return;
+
+    const currentLabel = tabs[tabIndex].session.label;
+    const input = document.createElement("input");
+    input.type = "text";
+    input.value = currentLabel;
+    input.className = "terminal-tab-edit";
+
+    let armed = false;
+    let committed = false;
+
+    const commit = () => {
+      if (committed) return;
+      committed = true;
+      const newLabel = input.value.trim() || currentLabel;
+      tabs[tabIndex].session.label = newLabel;
+      this.renderTabBar();
+    };
+
+    input.addEventListener("blur", () => {
+      if (!armed) {
+        requestAnimationFrame(() => {
+          if (!committed && input.isConnected) input.focus();
+        });
+        return;
+      }
+      commit();
+    });
+
+    input.addEventListener("keydown", (ke) => {
+      if (ke.key === "Enter") { ke.preventDefault(); armed = true; input.blur(); }
+      if (ke.key === "Escape") { input.value = currentLabel; armed = true; input.blur(); }
+      ke.stopPropagation();
+    });
+
+    input.addEventListener("mousedown", (me) => me.stopPropagation());
+
+    labelSpan.replaceWith(input);
+    input.focus();
+    input.select();
+
+    setTimeout(() => { armed = true; }, 200);
   }
 
   private restartTaskAgent(tabIndex: number): void {
