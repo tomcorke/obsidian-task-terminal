@@ -283,6 +283,55 @@
   opacity: 0.4;
 }
 
+/* === Claude state indicators on task cards === */
+
+/* Waiting: Claude needs user input - attention-grabbing amber pulse */
+.task-card.claude-waiting {
+  animation: claude-waiting-pulse 1.5s ease-in-out infinite;
+  border-left-color: #f59e0b;
+}
+
+.task-card.claude-waiting .task-card-session-badge {
+  animation: badge-flash 1s ease-in-out infinite;
+}
+
+@keyframes claude-waiting-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(245, 158, 11, 0);
+  }
+  50% {
+    box-shadow: 0 0 8px 2px rgba(245, 158, 11, 0.3);
+  }
+}
+
+@keyframes badge-flash {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.4; }
+}
+
+/* Idle: Claude is at the prompt, not working - subtle steady indicator */
+.task-card.claude-idle {
+  border-left-color: #6b7280;
+}
+
+.task-card.claude-idle .task-card-session-badge {
+  opacity: 0.6;
+}
+
+/* Active: Claude is working - subtle accent glow */
+.task-card.claude-active {
+  border-left-color: #30a46c;
+}
+
+/* Ensure selected card's accent border takes precedence but state shows via shadow */
+.task-card.selected.claude-waiting {
+  border-left-color: var(--interactive-accent);
+}
+
+.task-card.selected.claude-idle {
+  border-left-color: var(--interactive-accent);
+}
+
 .task-card.ingesting::after {
   content: "";
   position: absolute;
@@ -547,14 +596,21 @@
   border-bottom: none;
 }
 
+.terminal-tab:not(.active) {
+  opacity: 0.6;
+}
+
 .terminal-tab:hover {
   background: var(--background-modifier-hover);
+  opacity: 1;
 }
 
 .terminal-tab.active {
   background: var(--background-primary);
   color: var(--text-normal);
   border-color: var(--background-modifier-border);
+  border-bottom: 2px solid var(--interactive-accent);
+  font-weight: 600;
 }
 
 .terminal-tab-label {

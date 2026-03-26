@@ -5,6 +5,7 @@ import { TaskCard } from "./TaskCard";
 import {
   type TaskFile,
   type KanbanColumn,
+  type ClaudeState,
   KANBAN_COLUMNS,
   COLUMN_LABELS,
   STATE_FOLDER_MAP,
@@ -69,7 +70,8 @@ export class TaskListPanel {
     private onTaskSelect: (task: TaskFile | null) => void,
     private onOrderChange: (order: TaskOrder) => void,
     private getSessionCount?: (path: string) => { shells: number; claudes: number },
-    private onSplitComplete?: (newPath: string, originalTitle: string) => void
+    private onSplitComplete?: (newPath: string, originalTitle: string) => void,
+    private onCloseSessions?: (path: string) => void
   ) {
     this.containerEl.addClass("task-list-panel");
 
@@ -122,6 +124,7 @@ export class TaskListPanel {
           (t) => this.copyPrompt(t),
           (t) => this.splitTask(t, col),
           (t) => this.deleteTask(t),
+          (t) => this.completeAndClose(t),
           this.ingestingPaths.has(task.path)
         );
         this.cards.set(task.path, card);
@@ -372,6 +375,14 @@ export class TaskListPanel {
     const file = this.app.vault.getAbstractFileByPath(task.path) as TFile;
     if (!file) return;
     await this.mover.moveTask(file, targetCol);
+    setTimeout(() => this.render(), 200);
+  }
+
+  private async completeAndClose(task: TaskFile): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(task.path) as TFile;
+    if (!file) return;
+    await this.mover.moveTask(file, "done");
+    this.onCloseSessions?.(task.path);
     setTimeout(() => this.render(), 200);
   }
 
@@ -707,6 +718,22 @@ export class TaskListPanel {
     if (countEl) {
       const current = parseInt(countEl.textContent || "0", 10);
       countEl.textContent = String(current + delta);
+    }
+  }
+
+  /** Update the Claude state CSS class on a task card. */
+  setClaudeState(taskPath: string, state: ClaudeState): void {
+    const card = this.cards.get(taskPath);
+    if (!card) return;
+
+    const el = card.el;
+    el.removeClass("claude-active", "claude-idle", "claude-waiting");
+    if (state === "waiting") {
+      el.addClass("claude-waiting");
+    } else if (state === "idle") {
+      el.addClass("claude-idle");
+    } else if (state === "active") {
+      el.addClass("claude-active");
     }
   }
 }

@@ -1,6 +1,9 @@
 import type { ChildProcess } from "child_process";
 import type { Terminal } from "@xterm/xterm";
 
+/** Claude CLI session state, detected from terminal output patterns and timing. */
+export type ClaudeState = "inactive" | "active" | "idle" | "waiting";
+
 export interface TaskSource {
   type: "slack" | "jira" | "confluence" | "prompt" | "other";
   id: string;

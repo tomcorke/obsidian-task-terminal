@@ -1,7 +1,7 @@
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import type { ChildProcess } from "child_process";
-import type { TerminalSession } from "./types";
+import type { TerminalSession, ClaudeState } from "./types";
 import type { StoredSession } from "./SessionStore";
 import { StringDecoder } from "string_decoder";
 
@@ -66,10 +66,18 @@ export class TerminalTab {
   session: TerminalSession;
   onLabelChange?: () => void;
   onProcessExit?: (code: number | null, signal: string | null) => void;
+  onStateChange?: (state: ClaudeState) => void;
   private fitAddon: FitAddon;
   private resizeObserver: ResizeObserver;
   private _documentListeners: { event: string; handler: EventListener }[] = [];
   private cwd: string = "";
+
+  // Claude state detection
+  private _claudeState: ClaudeState = "inactive";
+  private _lastOutputTime = 0;
+  private _recentCleanLines: string[] = [];
+  private _stateTimer: ReturnType<typeof setInterval> | null = null;
+  private _isClaudeSession = false;
 
   constructor(
     private parentEl: HTMLElement,
@@ -165,6 +173,7 @@ export class TerminalTab {
         console.log("[task-terminal] Spawned pid:", proc.pid, "cols:", cols, "rows:", rows);
         this.session.process = proc;
         this.wireProcess(proc, terminal);
+        this.startStateTracking();
         terminal.scrollToBottom();
       } catch (err) {
         console.error("[task-terminal] Failed to spawn:", err);
@@ -271,11 +280,13 @@ export class TerminalTab {
 
     proc.stdout?.on("data", (data: Buffer) => {
       checkRename(data);
+      this._trackOutput(data);
       terminal.write(data);
     });
 
     proc.stderr?.on("data", (data: Buffer) => {
       checkRename(data);
+      this._trackOutput(data);
       terminal.write(data);
     });
 
@@ -370,6 +381,11 @@ export class TerminalTab {
    * The returned StoredSession holds references to live objects (Terminal, process, DOM).
    */
   stash(): StoredSession {
+    // Stop state timer during stash - will be restarted by fromStored
+    if (this._stateTimer) {
+      clearInterval(this._stateTimer);
+      this._stateTimer = null;
+    }
     return {
       id: this.session.id,
       taskPath: this.session.taskPath,
@@ -439,6 +455,9 @@ export class TerminalTab {
       containerEl: stored.containerEl,
     };
 
+    // Resume state tracking for Claude sessions
+    tab.startStateTracking();
+
     return tab;
   }
 
@@ -507,7 +526,117 @@ export class TerminalTab {
     };
   }
 
+  /** Current Claude state for this terminal. Only meaningful for Claude/Agent sessions. */
+  get claudeState(): ClaudeState {
+    return this._claudeState;
+  }
+
+  get isClaudeSession(): boolean {
+    return this._isClaudeSession;
+  }
+
+  /** Start state tracking for Claude/Agent sessions. Call after label is known. */
+  startStateTracking(): void {
+    this._isClaudeSession = this.detectClaudeLabel();
+    if (!this._isClaudeSession) return;
+
+    this._claudeState = "active"; // Assume active on spawn
+    this._lastOutputTime = Date.now();
+
+    // Check state every 2 seconds
+    this._stateTimer = setInterval(() => this._checkState(), 2000);
+  }
+
+  private detectClaudeLabel(): boolean {
+    const label = this.session.label.toLowerCase();
+    return label.startsWith("claude") || label.startsWith("agent");
+  }
+
+  /** Called on each chunk of output data to track activity. */
+  private _trackOutput(data: Buffer | string): void {
+    if (!this._isClaudeSession) return;
+
+    this._lastOutputTime = Date.now();
+
+    // If we were idle or waiting, we're now active again
+    if (this._claudeState !== "active") {
+      this._setClaudeState("active");
+    }
+
+    // Buffer recent clean lines for pattern matching (keep last 30 lines)
+    const stripAnsi = (s: string) =>
+      s.replace(/\x1b\[(\d+)C/g, (_m, n) => " ".repeat(parseInt(n, 10)))
+       .replace(/\x1b\[[0-9;?]*[a-zA-Z@`]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[^\[(\]].?|\x1b[\(\)][A-Z0-9]|[\x00-\x08\x0b\x0c\x0e-\x1f]/g, "");
+
+    const text = typeof data === "string" ? data : data.toString("utf8");
+    const lines = stripAnsi(text).split(/\r\n|\n|\r/).filter(l => l.trim().length > 0);
+    this._recentCleanLines.push(...lines);
+    if (this._recentCleanLines.length > 30) {
+      this._recentCleanLines = this._recentCleanLines.slice(-30);
+    }
+  }
+
+  private _checkState(): void {
+    if (!this._isClaudeSession) return;
+
+    const now = Date.now();
+    const elapsed = now - this._lastOutputTime;
+
+    if (elapsed < 3000) {
+      // Output is still flowing or just stopped - stay active
+      return;
+    }
+
+    // Output has stopped for 3+ seconds - classify
+    if (this._looksLikeWaiting()) {
+      this._setClaudeState("waiting");
+    } else if (elapsed > 5000) {
+      this._setClaudeState("idle");
+    }
+  }
+
+  /** Check if recent output looks like Claude is waiting for user input. */
+  private _looksLikeWaiting(): boolean {
+    const lines = this._recentCleanLines.slice(-15);
+    if (lines.length === 0) return false;
+
+    for (let i = lines.length - 1; i >= Math.max(0, lines.length - 10); i--) {
+      const line = lines[i].trim();
+
+      // Permission prompt patterns: "Allow", "allowOnce", "denyOnce"
+      if (/\bAllow\b.*\?/i.test(line)) return true;
+      if (/\ballowOnce\b|\bdenyOnce\b|\ballowAlways\b/i.test(line)) return true;
+
+      // AskUserQuestion patterns: numbered options "(1)", "(2)", etc.
+      if (/^\s*\(?\d+\)?\s+\S/.test(line) && i > 0) {
+        // Check if a preceding line ends with "?"
+        for (let j = i - 1; j >= Math.max(0, i - 5); j--) {
+          if (lines[j].trim().endsWith("?")) return true;
+        }
+      }
+
+      // Generic question pattern: line ends with "?" and is the last substantial line
+      if (i >= lines.length - 3 && line.endsWith("?") && line.length > 10) return true;
+
+      // "Yes" / "No" option pair in recent output
+      if (/^\s*(Yes|No)\s*$/i.test(line)) return true;
+    }
+
+    return false;
+  }
+
+  private _setClaudeState(state: ClaudeState): void {
+    if (this._claudeState === state) return;
+    this._claudeState = state;
+    this.onStateChange?.(state);
+  }
+
   dispose(): void {
+    // Stop state tracking
+    if (this._stateTimer) {
+      clearInterval(this._stateTimer);
+      this._stateTimer = null;
+    }
     // Remove document-level keyboard listeners
     for (const { event, handler } of this._documentListeners) {
       document.removeEventListener(event, handler, true);

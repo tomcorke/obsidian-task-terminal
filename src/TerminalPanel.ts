@@ -1,4 +1,4 @@
-import type { TaskFile, TaskTerminalSettings } from "./types";
+import type { TaskFile, TaskTerminalSettings, ClaudeState } from "./types";
 import { TerminalTab } from "./TerminalTab";
 import { SessionStore } from "./SessionStore";
 
@@ -31,6 +31,7 @@ export class TerminalPanel {
   private placeholderEl: HTMLElement;
   private vaultPath: string;
   onSessionChange?: () => void;
+  onClaudeStateChange?: (taskPath: string, state: ClaudeState) => void;
 
   constructor(
     private containerEl: HTMLElement,
@@ -67,6 +68,9 @@ export class TerminalPanel {
           const tab = TerminalTab.fromStored(ss, this.terminalWrapperEl);
           tab.onLabelChange = () => {
             if (this.activeTask?.path === taskPath) this.renderTabBar();
+          };
+          tab.onStateChange = () => {
+            this.onClaudeStateChange?.(taskPath, this.getClaudeState(taskPath));
           };
           tab.hide();
           tabs.push(tab);
@@ -152,6 +156,9 @@ export class TerminalPanel {
       const idx = tabs.indexOf(tab);
       if (idx !== -1) this.closeTab(idx);
     };
+    tab.onStateChange = (state) => {
+      this.onClaudeStateChange?.(taskPath, this.getClaudeState(taskPath));
+    };
 
     tabs.push(tab);
     this.sessions.set(taskPath, tabs);
@@ -187,6 +194,9 @@ export class TerminalPanel {
     tab.onProcessExit = () => {
       const idx = tabs.indexOf(tab);
       if (idx !== -1) this.closeTab(idx);
+    };
+    tab.onStateChange = (state) => {
+      this.onClaudeStateChange?.(taskPath, this.getClaudeState(taskPath));
     };
 
     tabs.push(tab);
@@ -429,6 +439,29 @@ export class TerminalPanel {
     );
   }
 
+  /**
+   * Get the aggregate Claude state for a task path.
+   * Priority: waiting > active > idle > inactive
+   * If any tab is "waiting", the task state is "waiting".
+   * If any tab is "active", the task state is "active".
+   * etc.
+   */
+  getClaudeState(taskPath: string): ClaudeState {
+    const tabs = this.sessions.get(taskPath) || [];
+    let hasActive = false;
+    let hasIdle = false;
+    for (const tab of tabs) {
+      if (!tab.isClaudeSession) continue;
+      const state = tab.claudeState;
+      if (state === "waiting") return "waiting";
+      if (state === "active") hasActive = true;
+      if (state === "idle") hasIdle = true;
+    }
+    if (hasActive) return "active";
+    if (hasIdle) return "idle";
+    return "inactive";
+  }
+
   /** Return the count of shell and Claude tabs for a given task path */
   getSessionCounts(taskPath: string): { shells: number; claudes: number } {
     const tabs = this.sessions.get(taskPath) || [];
@@ -457,6 +490,25 @@ export class TerminalPanel {
   /** Return task paths that have terminal sessions. */
   getSessionPaths(): string[] {
     return Array.from(this.sessions.keys());
+  }
+
+  /** Close and dispose all terminal sessions for a task path. */
+  closeAllSessions(taskPath: string): void {
+    const tabs = this.sessions.get(taskPath);
+    if (!tabs || tabs.length === 0) return;
+
+    for (const tab of tabs) {
+      tab.dispose();
+    }
+    this.sessions.delete(taskPath);
+
+    // If this was the active task, clear the tab bar
+    if (this.activeTask?.path === taskPath) {
+      this.activeTabIndex = 0;
+      this.renderTabBar();
+    }
+
+    this.onSessionChange?.();
   }
 
   /** Check if a task path has any terminal sessions. */

@@ -98,7 +98,12 @@ export class TaskTerminalView extends ItemView {
 
     // Initialize components
     this.terminalPanel = new TerminalPanel(rightPanel, this.plugin.settings, vaultPath);
-    this.terminalPanel.onSessionChange = () => this.taskList?.render();
+    this.terminalPanel.onSessionChange = () => {
+      this.taskList?.render().then(() => this.applyAllClaudeStates());
+    };
+    this.terminalPanel.onClaudeStateChange = (taskPath, state) => {
+      this.taskList?.setClaudeState(taskPath, state);
+    };
 
     // TaskDetailPanel manages a separate workspace leaf for the editor
     // We pass a placeholder container for when no task is selected
@@ -131,10 +136,12 @@ export class TaskTerminalView extends ItemView {
           "- Update the description/context with the agreed scope",
           "- Rename the file to match the new title (TASK-YYYYMMDD-HHMM-new-slug.md pattern)",
         ]);
-      }
+      },
+      (path) => this.terminalPanel.closeAllSessions(path)
     );
 
     await this.taskList.render();
+    this.applyAllClaudeStates();
 
     // Restore previously active task after reload
     const recoveredPath = this.terminalPanel.getRecoveredTaskPath();
@@ -474,11 +481,19 @@ export class TaskTerminalView extends ItemView {
     const fallback = setTimeout(resolve, 5000);
   }
 
+  /** Apply current Claude state classes to all task cards that have sessions. */
+  private applyAllClaudeStates(): void {
+    for (const taskPath of this.terminalPanel.getSessionPaths()) {
+      const state = this.terminalPanel.getClaudeState(taskPath);
+      this.taskList.setClaudeState(taskPath, state);
+    }
+  }
+
   private debouncedRefresh(modifiedPath?: string): void {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     this.debounceTimer = setTimeout(async () => {
       await this.taskList.render();
-      // Editor leaf auto-refreshes, no need to manually refresh detail
+      this.applyAllClaudeStates();
     }, 150);
   }
 
