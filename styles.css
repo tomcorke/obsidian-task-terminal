@@ -410,12 +410,18 @@
   flex: 1;
 }
 
-.task-card-move-top {
-  display: none;
+/* Top-right actions container */
+.task-card-actions {
   position: absolute;
   top: 0;
   right: 0;
-  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.task-card-move-top {
+  display: none;
   width: 20px;
   height: 20px;
   line-height: 20px;
@@ -438,10 +444,6 @@
 
 /* Session count badge */
 .task-card-session-badge {
-  position: absolute;
-  top: 0;
-  right: 0;
-  z-index: 1;
   min-width: 16px;
   height: 16px;
   line-height: 16px;
@@ -451,11 +453,6 @@
   border-radius: 8px;
   color: white;
   padding: 0 4px;
-  transition: transform 0.15s ease;
-}
-
-.task-card:hover .task-card-session-badge {
-  transform: translateX(-24px);
 }
 
 .task-card-session-badge.badge-claude {

@@ -44,23 +44,15 @@ export class TaskCard {
     const title = titleRow.createDiv({ cls: "task-card-title" });
     title.textContent = this.task.title;
 
-    // Move-to-top button (visible on hover)
-    if (this.onMoveToTop) {
-      const moveBtn = titleRow.createDiv({ cls: "task-card-move-top", attr: { title: "Move to top" } });
-      moveBtn.textContent = "\u2191";
-      moveBtn.addEventListener("click", (e) => {
-        e.stopPropagation();
-        this.onMoveToTop?.(this.task);
-        this.onSelect(this.task);
-      });
-    }
+    // Top-right actions container (session badge + move-to-top)
+    const actions = titleRow.createDiv({ cls: "task-card-actions" });
 
-    // Session count badge (top-right circle)
+    // Session count badge
     if (this.getSessionCount) {
       const counts = this.getSessionCount(this.task.path);
       const total = counts.shells + counts.claudes;
       if (total > 0) {
-        const badge = titleRow.createDiv({ cls: "task-card-session-badge" });
+        const badge = actions.createDiv({ cls: "task-card-session-badge" });
         badge.textContent = String(total);
         badge.title = `${counts.claudes} Claude, ${counts.shells} Shell`;
         if (counts.claudes > 0 && counts.shells === 0) {
@@ -72,6 +64,17 @@ export class TaskCard {
         }
         this.sessionBadge = badge;
       }
+    }
+
+    // Move-to-top button (visible on hover)
+    if (this.onMoveToTop) {
+      const moveBtn = actions.createDiv({ cls: "task-card-move-top", attr: { title: "Move to top" } });
+      moveBtn.textContent = "\u2191";
+      moveBtn.addEventListener("click", (e) => {
+        e.stopPropagation();
+        this.onMoveToTop?.(this.task);
+        this.onSelect(this.task);
+      });
     }
 
     // Meta row
