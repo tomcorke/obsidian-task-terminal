@@ -36,6 +36,7 @@ const ctx = await esbuild.context({
     "fs",
     "path",
     "os",
+    "string_decoder",
     "@codemirror/autocomplete",
     "@codemirror/collab",
     "@codemirror/commands",

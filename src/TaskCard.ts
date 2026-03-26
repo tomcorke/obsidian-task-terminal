@@ -1,4 +1,6 @@
-import type { TaskFile } from "./types";
+import type { TaskFile, KanbanColumn } from "./types";
+import { KANBAN_COLUMNS, COLUMN_LABELS } from "./types";
+import { ContextMenu, type MenuItem } from "./ContextMenu";
 
 const SOURCE_LABELS: Record<string, string> = {
   jira: "JIRA",
@@ -10,11 +12,18 @@ const SOURCE_LABELS: Record<string, string> = {
 
 export class TaskCard {
   el: HTMLElement;
+  private sessionBadge: HTMLElement | null = null;
 
   constructor(
     private task: TaskFile,
+    private column: KanbanColumn,
     private onSelect: (task: TaskFile) => void,
-    private onMoveToTop?: (task: TaskFile) => void
+    private onMoveToTop?: (task: TaskFile) => void,
+    private getSessionCount?: (path: string) => { shells: number; claudes: number },
+    private onContextMove?: (task: TaskFile, column: KanbanColumn) => void,
+    private onCopyName?: (task: TaskFile) => void,
+    private onCopyPath?: (task: TaskFile) => void,
+    private onCopyPrompt?: (task: TaskFile) => void
   ) {
     this.el = this.render();
   }
@@ -41,6 +50,25 @@ export class TaskCard {
       });
     }
 
+    // Session count badge (top-right circle)
+    if (this.getSessionCount) {
+      const counts = this.getSessionCount(this.task.path);
+      const total = counts.shells + counts.claudes;
+      if (total > 0) {
+        const badge = titleRow.createDiv({ cls: "task-card-session-badge" });
+        badge.textContent = String(total);
+        badge.title = `${counts.claudes} Claude, ${counts.shells} Shell`;
+        if (counts.claudes > 0 && counts.shells === 0) {
+          badge.addClass("badge-claude");
+        } else if (counts.shells > 0 && counts.claudes === 0) {
+          badge.addClass("badge-shell");
+        } else {
+          badge.addClass("badge-mixed");
+        }
+        this.sessionBadge = badge;
+      }
+    }
+
     // Meta row
     const meta = card.createDiv({ cls: "task-card-meta" });
 
@@ -59,12 +87,6 @@ export class TaskCard {
       } else {
         score.addClass("score-low");
       }
-    }
-
-    // Agent-actionable badge
-    if (this.task.agentActionable) {
-      const badge = meta.createSpan({ cls: "agent-badge" });
-      badge.textContent = "AI";
     }
 
     // Goal tags
@@ -91,6 +113,13 @@ export class TaskCard {
       this.onSelect(this.task);
     });
 
+    // Right-click context menu
+    card.addEventListener("contextmenu", (e) => {
+      e.preventDefault();
+      e.stopPropagation();
+      this.showContextMenu(e.clientX, e.clientY);
+    });
+
     // Drag events
     card.addEventListener("dragstart", (e) => {
       card.addClass("dragging");
@@ -105,6 +134,45 @@ export class TaskCard {
     });
 
     return card;
+  }
+
+  private showContextMenu(x: number, y: number): void {
+    const items: MenuItem[] = [];
+
+    // Move to other columns
+    for (const col of KANBAN_COLUMNS) {
+      if (col === this.column) continue;
+      items.push({
+        label: `Move to ${COLUMN_LABELS[col]}`,
+        action: () => this.onContextMove?.(this.task, col),
+      });
+    }
+
+    items.push({ separator: true });
+
+    // Move to top
+    items.push({
+      label: "Move to Top",
+      action: () => this.onMoveToTop?.(this.task),
+    });
+
+    items.push({ separator: true });
+
+    // Copy actions
+    items.push({
+      label: "Copy Name",
+      action: () => this.onCopyName?.(this.task),
+    });
+    items.push({
+      label: "Copy Path",
+      action: () => this.onCopyPath?.(this.task),
+    });
+    items.push({
+      label: "Copy Context Prompt",
+      action: () => this.onCopyPrompt?.(this.task),
+    });
+
+    new ContextMenu(items, x, y);
   }
 
   setSelected(selected: boolean): void {

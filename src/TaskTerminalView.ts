@@ -92,6 +92,7 @@ export class TaskTerminalView extends ItemView {
 
     // Initialize components
     this.terminalPanel = new TerminalPanel(rightPanel, this.plugin.settings, vaultPath);
+    this.terminalPanel.onSessionChange = () => this.taskList?.render();
 
     // TaskDetailPanel manages a separate workspace leaf for the editor
     // We pass a placeholder container for when no task is selected
@@ -104,6 +105,7 @@ export class TaskTerminalView extends ItemView {
       this.parser,
       this.mover,
       this.plugin.taskOrder,
+      vaultPath,
       (task) => {
         this.taskDetail.setTask(task);
         this.terminalPanel.setTask(task);
@@ -111,7 +113,8 @@ export class TaskTerminalView extends ItemView {
       (order) => {
         this.plugin.taskOrder = order;
         this.plugin.saveTaskOrder();
-      }
+      },
+      (path) => this.terminalPanel.getSessionCounts(path)
     );
 
     await this.taskList.render();
@@ -136,6 +139,17 @@ export class TaskTerminalView extends ItemView {
 
     this.registerEvent(
       this.app.vault.on("create", (file) => {
+        if (this.parser.isTaskFile(file.path)) {
+          this.debouncedRefresh();
+        }
+      })
+    );
+
+    // MetadataCache fires "changed" after frontmatter is parsed, which may
+    // be after the vault "create" event.  Without this, newly created tasks
+    // don't appear because parseFromFrontmatter returns null on first render.
+    this.registerEvent(
+      this.app.metadataCache.on("changed", (file) => {
         if (this.parser.isTaskFile(file.path)) {
           this.debouncedRefresh();
         }

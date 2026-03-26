@@ -2,6 +2,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import type { ChildProcess } from "child_process";
 import type { TerminalSession } from "./types";
+import { StringDecoder } from "string_decoder";
 
 // Use dynamic require to get child_process at runtime in Electron
 function getSpawn(): typeof import("child_process").spawn {
@@ -191,9 +192,11 @@ export class TerminalTab {
       }
     });
 
-    // Resize observer
+    // Resize observer - skip fit when hidden to avoid zero-dimension issues
     this.resizeObserver = new ResizeObserver(() => {
+      if (containerEl.hasClass("hidden")) return;
       requestAnimationFrame(() => {
+        if (containerEl.hasClass("hidden")) return;
         try {
           this.fitAddon.fit();
         } catch {
@@ -221,18 +224,56 @@ export class TerminalTab {
     });
 
     // Detect Claude session rename in output stream.
-    // Check BEFORE terminal.write() so a hidden terminal can't block detection.
-    const renamePattern = /Session renamed to:\s*(.+)/;
-    // Strip ANSI CSI, OSC, and other escape sequences for clean matching
+    // Data may arrive split across chunks, so buffer partial lines.
+    // Match only the actual CLI output line: "└ Session renamed to: <name>"
+    // Anchored to start-of-line so it won't match prose containing the phrase
+    const renamePattern = /^\s*[^\w]*Session renamed to:\s*(.+?)\s*$/;
+    // Strip ANSI escape sequences comprehensively, replacing cursor-forward
+    // (CSI nC) with equivalent spaces so TUI-rendered text preserves word gaps.
     const stripAnsi = (s: string) =>
-      s.replace(/\x1b(?:\[[0-9;]*[a-zA-Z]|\][^\x07]*\x07|\(B)/g, "");
+      s
+        // First pass: replace CSI cursor-forward (\x1b[nC) with n spaces
+        .replace(/\x1b\[(\d+)C/g, (_m, n) => " ".repeat(parseInt(n, 10)))
+        // Second pass: strip all remaining ANSI/control sequences
+        // - CSI sequences: \x1b[ ... letter (SGR, cursor movement, erase, etc.)
+        // - OSC sequences: \x1b] ... BEL(\x07) or ST(\x1b\\)
+        // - SS2/SS3: \x1bN, \x1bO
+        // - Other two-char escapes: \x1b followed by single char
+        // - C0 controls that aren't whitespace
+        .replace(/\x1b\[[0-9;?]*[a-zA-Z@`]|\x1b\][^\x07\x1b]*(?:\x07|\x1b\\)|\x1b[^\[(\]].?|\x1b[\(\)][A-Z0-9]|[\x00-\x08\x0b\x0c\x0e-\x1a\x1c-\x1f]/g, "");
 
+    // Use StringDecoder to handle multi-byte UTF-8 characters (like └)
+    // split across data chunk boundaries
+    const decoder = new StringDecoder("utf8");
+    let lineBuffer = "";
     const checkRename = (data: Buffer) => {
-      const text = stripAnsi(data.toString());
-      const match = text.match(renamePattern);
-      if (match) {
-        this.session.label = match[1].trim();
-        this.onLabelChange?.();
+      lineBuffer += decoder.write(data);
+      // Split on any line ending style: \r\n, \n, or bare \r
+      const lines = lineBuffer.split(/\r\n|\n|\r/);
+      // Keep the last (possibly incomplete) chunk
+      lineBuffer = lines.pop() || "";
+      for (const line of lines) {
+        const clean = stripAnsi(line);
+        const match = clean.match(renamePattern);
+        if (match) {
+          const newLabel = match[1].trim();
+          console.log("[task-terminal] Rename detected:", newLabel);
+          this.session.label = newLabel;
+          this.onLabelChange?.();
+        }
+      }
+      // Also check the incomplete line buffer - handles the case where
+      // rename output arrives without a trailing newline (e.g. Claude
+      // goes straight back to waiting for input after /rename)
+      if (lineBuffer) {
+        const clean = stripAnsi(lineBuffer);
+        const match = clean.match(renamePattern);
+        if (match) {
+          const newLabel = match[1].trim();
+          console.log("[task-terminal] Rename detected (partial):", newLabel);
+          this.session.label = newLabel;
+          this.onLabelChange?.();
+        }
       }
     };
 
@@ -253,6 +294,7 @@ export class TerminalTab {
 
     proc.on("exit", (code, signal) => {
       terminal.write(`\r\n[Process exited (code: ${code}, signal: ${signal})]\r\n`);
+      this.onProcessExit?.(code, signal);
     });
   }
 
@@ -301,6 +343,10 @@ export class TerminalTab {
     });
     console.log("[task-terminal] spawn pid:", proc.pid);
     return proc;
+  }
+
+  get isVisible(): boolean {
+    return !this.session.containerEl.hasClass("hidden");
   }
 
   show(): void {

@@ -11,6 +11,33 @@ import {
 } from "./types";
 import type { TaskOrder } from "./main";
 
+function buildContextPrompt(task: TaskFile, fullPath: string): string {
+  const parts: string[] = [
+    `Task: "${task.title}"`,
+    `State: ${task.state}`,
+    `File: ${fullPath}`,
+  ];
+  if (task.source.type !== "prompt" && task.source.id) {
+    parts.push(`Source: ${task.source.type} ${task.source.id}`);
+  }
+  if (task.source.url) {
+    parts.push(`URL: ${task.source.url}`);
+  }
+  if (task.priority.deadline) {
+    parts.push(`Deadline: ${task.priority.deadline}`);
+  }
+  if (task.priority["has-blocker"]) {
+    parts.push(`BLOCKED: ${task.priority["blocker-context"]}`);
+  }
+  return [
+    parts.join(" | "),
+    "",
+    `Read the task file at ${fullPath} for full context (enrichment notes, next steps, activity log).`,
+    "Respond briefly with just the task title and current state to confirm you've loaded it.",
+    "The /tc-tasks:task-agent skill is available for full task management operations if needed.",
+  ].join("\n");
+}
+
 export class TaskListPanel {
   private cards: Map<string, TaskCard> = new Map();
   private selectedPath: string | null = null;
@@ -27,8 +54,10 @@ export class TaskListPanel {
     private parser: TaskParser,
     private mover: TaskMover,
     private taskOrder: TaskOrder,
+    private vaultPath: string,
     private onTaskSelect: (task: TaskFile | null) => void,
-    private onOrderChange: (order: TaskOrder) => void
+    private onOrderChange: (order: TaskOrder) => void,
+    private getSessionCount?: (path: string) => { shells: number; claudes: number }
   ) {
     this.containerEl.addClass("task-list-panel");
 
@@ -71,8 +100,14 @@ export class TaskListPanel {
       for (const task of orderedTasks) {
         const card = new TaskCard(
           task,
+          col,
           (t) => this.selectTask(t),
-          (t) => this.moveToTop(t.path, col)
+          (t) => this.moveToTop(t.path, col),
+          this.getSessionCount,
+          (t, targetCol) => this.contextMove(t, targetCol),
+          (t) => this.copyName(t),
+          (t) => this.copyPath(t),
+          (t) => this.copyPrompt(t)
         );
         this.cards.set(task.path, card);
         cardsEl.appendChild(card.el);
@@ -306,6 +341,31 @@ export class TaskListPanel {
     this.taskOrder[column] = currentPaths;
     this.onOrderChange(this.taskOrder);
     this.render();
+  }
+
+  private async contextMove(task: TaskFile, targetCol: KanbanColumn): Promise<void> {
+    const file = this.app.vault.getAbstractFileByPath(task.path) as TFile;
+    if (!file) return;
+    await this.mover.moveTask(file, targetCol);
+    setTimeout(() => this.render(), 200);
+  }
+
+  private copyName(task: TaskFile): void {
+    navigator.clipboard.writeText(task.title);
+  }
+
+  private copyPath(task: TaskFile): void {
+    const fullPath = this.resolveFullPath(task.path);
+    navigator.clipboard.writeText(fullPath);
+  }
+
+  private copyPrompt(task: TaskFile): void {
+    const fullPath = this.resolveFullPath(task.path);
+    navigator.clipboard.writeText(buildContextPrompt(task, fullPath));
+  }
+
+  private resolveFullPath(vaultRelativePath: string): string {
+    return this.vaultPath + "/" + vaultRelativePath;
   }
 
   private selectTask(task: TaskFile): void {

@@ -287,6 +287,7 @@
 }
 
 .task-card-title-row {
+  position: relative;
   display: flex;
   align-items: flex-start;
   gap: 4px;
@@ -301,7 +302,10 @@
 
 .task-card-move-top {
   display: none;
-  flex-shrink: 0;
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 1;
   width: 20px;
   height: 20px;
   line-height: 20px;
@@ -321,6 +325,40 @@
   color: var(--text-normal);
   background: var(--interactive-accent);
   color: white;
+}
+
+/* Session count badge */
+.task-card-session-badge {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 0;
+  min-width: 16px;
+  height: 16px;
+  line-height: 16px;
+  text-align: center;
+  font-size: 10px;
+  font-weight: 600;
+  border-radius: 8px;
+  color: white;
+  padding: 0 4px;
+  transition: right 0.15s ease;
+}
+
+.task-card:hover .task-card-session-badge {
+  right: 24px;
+}
+
+.task-card-session-badge.badge-claude {
+  background: #C15F3C;
+}
+
+.task-card-session-badge.badge-shell {
+  background: #3b82f6;
+}
+
+.task-card-session-badge.badge-mixed {
+  background: #8b5cf6;
 }
 
 .task-card-meta {
@@ -422,6 +460,28 @@
   border-color: var(--background-modifier-border);
 }
 
+.terminal-tab-label {
+  cursor: default;
+}
+
+.terminal-tab.active .terminal-tab-label {
+  cursor: text;
+}
+
+.terminal-tab-edit {
+  background: var(--background-primary-alt);
+  color: var(--text-normal);
+  border: 1px solid var(--interactive-accent);
+  border-radius: 2px;
+  font-size: 12px;
+  padding: 0 4px;
+  outline: none;
+  width: auto;
+  min-width: 40px;
+  max-width: 200px;
+  font-family: inherit;
+}
+
 .terminal-tab-close {
   font-size: 14px;
   line-height: 1;
@@ -452,18 +512,22 @@
 }
 
 .terminal-tab-btn.claude-btn {
-  color: var(--interactive-accent);
-  border-color: var(--interactive-accent);
+  color: #C15F3C;
+  border-color: #C15F3C;
+  display: flex;
+  align-items: center;
 }
 
 .terminal-tab-btn.claude-btn:hover {
-  background: var(--interactive-accent);
+  background: #C15F3C;
   color: white;
 }
 
 .terminal-tab-btn.task-agent-btn {
   color: #30a46c;
   border-color: #30a46c;
+  display: flex;
+  align-items: center;
 }
 
 .terminal-tab-btn.task-agent-btn:hover {
@@ -503,7 +567,9 @@
 }
 
 .terminal-instance.hidden {
-  display: none;
+  visibility: hidden;
+  pointer-events: none;
+  z-index: -1;
 }
 
 /* === Terminal Placeholder === */
@@ -539,4 +605,35 @@
 .terminal-task-header .task-title {
   font-weight: 500;
   color: var(--text-normal);
+}
+
+/* === Context Menu === */
+.task-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 180px;
+  background: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  border-radius: 6px;
+  padding: 4px 0;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
+  font-size: 13px;
+}
+
+.task-context-menu-item {
+  padding: 6px 14px;
+  cursor: pointer;
+  color: var(--text-normal);
+  white-space: nowrap;
+}
+
+.task-context-menu-item:hover {
+  background: var(--interactive-accent);
+  color: var(--text-on-accent);
+}
+
+.task-context-menu-sep {
+  height: 1px;
+  background: var(--background-modifier-border);
+  margin: 4px 0;
 }

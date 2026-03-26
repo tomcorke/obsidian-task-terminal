@@ -79,21 +79,21 @@ export class TaskDetailPanel {
   private applySplitRatio(leftPct: number, rightPct: number): void {
     if (!this.editorLeaf) return;
     const parent = this.editorLeaf.parent as any;
-    if (!parent) return;
+    if (!parent || !parent.children || parent.children.length < 2) return;
 
-    // Debug: log parent structure to find the right sizing mechanism
-    console.log("[task-terminal] split parent:", parent);
-    console.log("[task-terminal] split parent keys:", Object.keys(parent));
-    console.log("[task-terminal] split parent.direction:", parent.direction);
-    console.log("[task-terminal] split parent.children:", parent.children);
-    if (parent.children) {
-      for (const child of parent.children) {
-        console.log("[task-terminal] child keys:", Object.keys(child));
-        console.log("[task-terminal] child.dimension:", (child as any).dimension);
-        console.log("[task-terminal] child.size:", (child as any).size);
-        console.log("[task-terminal] child.width:", (child as any).width);
-        console.log("[task-terminal] child.containerEl style:", child.containerEl?.style?.cssText);
-      }
+    // Obsidian split children have a containerEl we can style with flex
+    const leftChild = parent.children[0];
+    const rightChild = parent.children[1];
+
+    if (leftChild?.containerEl) {
+      leftChild.containerEl.style.flexGrow = String(leftPct);
+      leftChild.containerEl.style.flexShrink = "1";
+      leftChild.containerEl.style.flexBasis = "0%";
+    }
+    if (rightChild?.containerEl) {
+      rightChild.containerEl.style.flexGrow = String(rightPct);
+      rightChild.containerEl.style.flexShrink = "1";
+      rightChild.containerEl.style.flexBasis = "0%";
     }
   }
 

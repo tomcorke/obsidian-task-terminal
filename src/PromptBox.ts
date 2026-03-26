@@ -96,17 +96,11 @@ export class PromptBox {
   private runClaude(prompt: string): Promise<void> {
     return new Promise((resolve, reject) => {
       const spawnFn = getSpawn();
-      const path = (window.require || require)("path") as typeof import("path");
 
       const pluginBase = (process.env.HOME || "") + "/working/claude-sandbox/plugins";
-      const wrapperPath = path.join(
-        process.env.HOME || "",
-        "working", "claude-sandbox", "obsidian-task-terminal", "src", "pty-wrapper.py"
-      );
 
+      // --print mode doesn't need a PTY, spawn Claude directly
       const args = [
-        wrapperPath, "80", "24", "--",
-        this.settings.claudeCommand,
         "--dangerously-skip-permissions",
         "--plugin-dir", pluginBase + "/tc-services",
         "--plugin-dir", pluginBase + "/tc-tools",
@@ -116,7 +110,7 @@ export class PromptBox {
         `/tc-tasks:task-agent ${prompt}`,
       ];
 
-      const proc = spawnFn("python3", args, {
+      const proc = spawnFn(this.settings.claudeCommand, args, {
         cwd: process.env.HOME || "/",
         stdio: ["pipe", "pipe", "pipe"],
         env: {
@@ -125,6 +119,9 @@ export class PromptBox {
           PATH: process.env.PATH || "/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin",
         },
       });
+
+      // Close stdin immediately - --print mode reads prompt from args, not stdin
+      proc.stdin?.end();
 
       let stderr = "";
       proc.stderr?.on("data", (data: Buffer) => {
@@ -140,6 +137,16 @@ export class PromptBox {
           reject(new Error(stderr.slice(0, 200) || `Exit code ${code}`));
         }
       });
+
+      // Timeout after 120s to avoid indefinite hang
+      const timeout = setTimeout(() => {
+        if (!proc.killed) {
+          proc.kill("SIGTERM");
+          reject(new Error("Timed out after 120s"));
+        }
+      }, 120_000);
+
+      proc.on("exit", () => clearTimeout(timeout));
     });
   }
 }
