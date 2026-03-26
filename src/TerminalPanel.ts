@@ -91,6 +91,16 @@ export class TerminalPanel {
       this.activeTabIndex = stored.activeTabIndex;
       this.recoveredTaskPath = stored.activeTaskPath;
       this.recoveredTabIndex = stored.activeTabIndex;
+
+      // Pre-seed idleSince for recovered tasks with Claude sessions so
+      // idle animations start fully stale (300s ago) instead of fresh.
+      const fullyStale = Date.now() - 300_000;
+      for (const [taskPath, tabs] of this.sessions) {
+        if (tabs.some(t => t.isClaudeSession)) {
+          this.idleSince.set(taskPath, fullyStale);
+        }
+      }
+
       console.log("[task-terminal] Recovered", this.sessions.size, "task groups");
     }
 
