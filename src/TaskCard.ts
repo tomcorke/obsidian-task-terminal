@@ -26,6 +26,7 @@ export class TaskCard {
     private onCopyPrompt?: (task: TaskFile) => void,
     private onSplitTask?: (task: TaskFile) => void,
     private onDeleteTask?: (task: TaskFile) => void,
+    private onCompleteAndClose?: (task: TaskFile) => void,
     private ingesting?: boolean
   ) {
     this.el = this.render();
@@ -170,6 +171,13 @@ export class TaskCard {
         label: `Move to ${COLUMN_LABELS[col]}`,
         action: () => this.onContextMove?.(this.task, col),
       });
+      // Add "Done & Close Sessions" right after "Move to Done"
+      if (col === "done") {
+        items.push({
+          label: "Done & Close Sessions",
+          action: () => this.onCompleteAndClose?.(this.task),
+        });
+      }
     }
 
     items.push({ separator: true });
