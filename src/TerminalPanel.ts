@@ -811,8 +811,7 @@ export class TerminalPanel {
     let claudes = 0;
     let shells = 0;
     for (const tab of tabs) {
-      const label = tab.session.label.toLowerCase();
-      if (label.startsWith("claude") || label.startsWith("agent")) {
+      if (tab.isClaudeSession) {
         claudes++;
       } else {
         shells++;

@@ -547,14 +547,14 @@ export class TerminalTab {
 
     this._claudeState = "active"; // Assume active on spawn
     this._lastOutputTime = Date.now();
+    if (!this._recentCleanLines) this._recentCleanLines = [];
 
     // Check state every 2 seconds
     this._stateTimer = setInterval(() => this._checkState(), 2000);
   }
 
   private detectClaudeLabel(): boolean {
-    const label = this.session.label.toLowerCase();
-    return label.startsWith("claude") || label.startsWith("agent");
+    return !!this.claudeSessionId;
   }
 
   /** Called on each chunk of output data to track activity. */
@@ -586,13 +586,17 @@ export class TerminalTab {
   private _readTerminalScreen(): string[] {
     const buf = this.session.terminal.buffer.active;
     const lines: string[] = [];
-    // Read from the bottom up, stop after finding content or hitting 30 lines
-    const totalRows = buf.length;
-    for (let i = totalRows - 1; i >= Math.max(0, totalRows - 30); i--) {
+    // Read all rows up to cursor position + a few extra, capturing content lines.
+    // The cursor position (baseY + cursorY) marks where content ends; rows below
+    // are empty padding. Reading from the bottom of buf.length would miss
+    // everything when the terminal is taller than the content.
+    const contentEnd = buf.baseY + buf.cursorY + 2;
+    const start = Math.max(0, contentEnd - 30);
+    for (let i = start; i < contentEnd; i++) {
       const line = buf.getLine(i);
       if (line) {
         const text = line.translateToString(true).trim();
-        if (text.length > 0) lines.unshift(text);
+        if (text.length > 0) lines.push(text);
       }
     }
     return lines;
@@ -605,15 +609,18 @@ export class TerminalTab {
     // This avoids the fundamental problem of classifying raw stdout
     // (status line redraws produce continuous output even when idle).
     const screenLines = this._readTerminalScreen();
-    if (screenLines.length === 0) return;
 
     // Check for waiting patterns first (highest priority).
+    // Run even if screenLines is empty - _looksLikeWaiting also checks _recentCleanLines.
     // Check both the screen buffer (reliable, shows current UI) and recent
     // output lines (catches patterns that may have scrolled off screen).
     if (this._looksLikeWaiting(screenLines)) {
       this._setClaudeState("waiting");
       return;
     }
+
+    // Need screen content for idle/active detection
+    if (screenLines.length === 0) return;
 
     // Check if Claude is at its input prompt (idle).
     // Claude Code shows a ">" prompt when waiting for user input.
@@ -622,7 +629,7 @@ export class TerminalTab {
     // got relabeled.
     const lastLines = screenLines.slice(-5);
     const atPrompt = lastLines.some(line =>
-      /^\s*>\s*$/.test(line) ||           // Claude's bare ">" prompt
+      /^\s*[>❯]\s*$/.test(line) ||       // Claude's ">" or "❯" prompt
       /^\s*\$\s*$/.test(line) ||          // shell $ prompt
       /^\s*%\s*$/.test(line)              // zsh % prompt
     );
