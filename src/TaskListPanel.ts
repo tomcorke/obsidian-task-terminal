@@ -726,9 +726,9 @@ export class TaskListPanel {
   }
 
   /** Update the Claude state CSS class on a task card.
-   *  Skips DOM mutation when the correct class is already applied,
-   *  preserving in-progress CSS animations (e.g. idle staleness arc). */
-  setClaudeState(taskPath: string, state: ClaudeState): void {
+   *  For idle state, sets a negative animation-delay so the staleness
+   *  animation resumes at the correct position even after re-renders. */
+  setClaudeState(taskPath: string, state: ClaudeState, idleSince?: number): void {
     const card = this.cards.get(taskPath);
     if (!card) return;
 
@@ -739,10 +739,31 @@ export class TaskListPanel {
       : null;
 
     // Already has the correct class - no-op to preserve CSS animations
-    if (targetClass && el.hasClass(targetClass)) return;
+    if (targetClass && el.hasClass(targetClass)) {
+      // Still update animation-delay for idle in case timestamp changed
+      if (state === "idle" && idleSince) {
+        this.applyIdleAnimationOffset(el, idleSince);
+      }
+      return;
+    }
 
     el.removeClass("claude-active", "claude-idle", "claude-waiting");
+    // Clear animation offset when leaving idle
+    el.style.removeProperty("--idle-offset");
     if (targetClass) el.addClass(targetClass);
+
+    // Set animation offset so staleness picks up where it left off
+    if (state === "idle") {
+      this.applyIdleAnimationOffset(el, idleSince);
+    }
+  }
+
+  /** Set --idle-offset CSS variable for animation-delay fast-forward.
+   *  When idleSince is undefined (e.g. plugin just loaded), defaults to
+   *  fully stale (300s elapsed) so cards don't animate from fresh. */
+  private applyIdleAnimationOffset(el: HTMLElement, idleSince?: number): void {
+    const elapsedSec = idleSince ? (Date.now() - idleSince) / 1000 : 300;
+    el.style.setProperty("--idle-offset", `-${elapsedSec.toFixed(1)}s`);
   }
 
   /** Update session badges on all cards in-place (no re-render). */

@@ -104,7 +104,7 @@ export class TaskTerminalView extends ItemView {
       this.applyAllClaudeStates();
     };
     this.terminalPanel.onClaudeStateChange = (taskPath, state) => {
-      this.taskList?.setClaudeState(taskPath, state);
+      this.taskList?.setClaudeState(taskPath, state, this.terminalPanel.getIdleSince(taskPath));
     };
     this.terminalPanel.onPersistRequest = () => {
       SessionStore.saveToDisk(this.plugin, this.terminalPanel.getSessions());
@@ -502,7 +502,7 @@ export class TaskTerminalView extends ItemView {
   private applyAllClaudeStates(): void {
     for (const taskPath of this.terminalPanel.getSessionPaths()) {
       const state = this.terminalPanel.getClaudeState(taskPath);
-      this.taskList.setClaudeState(taskPath, state);
+      this.taskList.setClaudeState(taskPath, state, this.terminalPanel.getIdleSince(taskPath));
     }
   }
 

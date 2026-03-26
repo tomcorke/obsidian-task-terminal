@@ -35,6 +35,8 @@ export class TerminalPanel {
   private persistedSessions: PersistedSession[] = [];
   private dragSourceIndex: number | null = null;
   private lastActiveTab: Map<string, number> = new Map();
+  /** Timestamp (ms) when each task last entered idle state. */
+  private idleSince: Map<string, number> = new Map();
   onSessionChange?: () => void;
   onClaudeStateChange?: (taskPath: string, state: ClaudeState) => void;
   onPersistRequest?: () => void;
@@ -605,9 +607,23 @@ export class TerminalPanel {
       if (state === "active") hasActive = true;
       if (state === "idle") hasIdle = true;
     }
-    if (hasActive) return "active";
-    if (hasIdle) return "idle";
-    return "inactive";
+    const result: ClaudeState = hasActive ? "active" : hasIdle ? "idle" : "inactive";
+
+    // Track idle-since timestamp for staleness animation continuity
+    if (result === "idle") {
+      if (!this.idleSince.has(taskPath)) {
+        this.idleSince.set(taskPath, Date.now());
+      }
+    } else {
+      this.idleSince.delete(taskPath);
+    }
+
+    return result;
+  }
+
+  /** Get the timestamp (ms) when this task entered idle, or undefined. */
+  getIdleSince(taskPath: string): number | undefined {
+    return this.idleSince.get(taskPath);
   }
 
   private showTabContextMenu(e: MouseEvent, tabIndex: number): void {

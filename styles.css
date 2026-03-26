@@ -477,6 +477,7 @@
   position: relative;
   overflow: visible;
   animation: badge-desaturate 300s linear forwards;
+  animation-delay: var(--idle-offset, 0s);
 }
 
 .task-card.claude-idle .task-card-session-badge::after {
@@ -489,6 +490,7 @@
   -webkit-mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
   mask: radial-gradient(farthest-side, transparent calc(100% - 2px), #000 calc(100% - 2px));
   animation: badge-deplete 300s linear forwards;
+  animation-delay: var(--idle-offset, 0s);
   pointer-events: none;
 }
 
