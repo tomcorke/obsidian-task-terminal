@@ -1,6 +1,7 @@
 import type { TaskFile, TaskTerminalSettings, ClaudeState } from "./types";
 import { TerminalTab } from "./TerminalTab";
 import { SessionStore, type PersistedSession } from "./SessionStore";
+import { ContextMenu, type MenuItem } from "./ContextMenu";
 
 /** Claude sparkle logomark as inline SVG */
 function createClaudeLogo(size = 14): SVGSVGElement {
@@ -611,51 +612,33 @@ export class TerminalPanel {
     const tabs = this.sessions.get(this.activeTask.path) || [];
     if (tabIndex < 0 || tabIndex >= tabs.length) return;
 
-    // Remove any existing context menu
-    document.querySelector(".tab-context-menu")?.remove();
-
-    const menu = document.createElement("div");
-    menu.className = "tab-context-menu";
-    menu.style.position = "fixed";
-    menu.style.left = `${e.clientX}px`;
-    menu.style.top = `${e.clientY}px`;
-    menu.style.zIndex = "1000";
-
-    const renameItem = menu.createDiv({ cls: "tab-context-menu-item", text: "Rename" });
-    renameItem.addEventListener("click", () => {
-      menu.remove();
-      this.switchToTab(tabIndex);
-      // Trigger inline rename on the tab after re-render
-      requestAnimationFrame(() => this.enterTabRename(tabIndex));
-    });
+    const items: MenuItem[] = [
+      {
+        label: "Rename",
+        action: () => {
+          this.switchToTab(tabIndex);
+          requestAnimationFrame(() => this.enterTabRename(tabIndex));
+        },
+      },
+    ];
 
     if (tabs[tabIndex].isClaudeSession) {
-      const restartItem = menu.createDiv({ cls: "tab-context-menu-item", text: "Restart Task Agent" });
-      restartItem.addEventListener("click", () => {
-        menu.remove();
-        this.restartTaskAgent(tabIndex);
+      items.push({
+        label: "Restart Task Agent",
+        action: () => this.restartTaskAgent(tabIndex),
       });
     }
 
-    // "Move to task..." submenu
-    const moveItem = menu.createDiv({ cls: "tab-context-menu-item", text: "Move to task..." });
-    moveItem.addEventListener("click", async () => {
-      menu.remove();
-      await this.showMoveToTaskMenu(e, tabIndex);
+    items.push({
+      label: "Move to task...",
+      action: async () => {
+        await this.showMoveToTaskMenu(e, tabIndex);
+      },
     });
 
-    document.body.appendChild(menu);
-    const dismiss = (ev: Event) => {
-      if (!menu.contains(ev.target as Node)) {
-        menu.remove();
-        document.removeEventListener("click", dismiss, true);
-        document.removeEventListener("contextmenu", dismiss, true);
-      }
-    };
-    setTimeout(() => {
-      document.addEventListener("click", dismiss, true);
-      document.addEventListener("contextmenu", dismiss, true);
-    }, 0);
+    new ContextMenu(items, e.clientX, e.clientY, {
+      title: tabs[tabIndex].session.label,
+    });
   }
 
   private enterTabRename(tabIndex: number): void {
@@ -773,39 +756,12 @@ export class TerminalPanel {
     const otherTasks = tasks.filter(t => t.path !== currentPath);
     if (otherTasks.length === 0) return;
 
-    document.querySelector(".tab-context-menu")?.remove();
+    const items: MenuItem[] = otherTasks.map(task => ({
+      label: task.title,
+      action: () => this.moveTabToTask(tabIndex, task),
+    }));
 
-    const menu = document.createElement("div");
-    menu.className = "tab-context-menu";
-    menu.style.position = "fixed";
-    menu.style.left = `${e.clientX}px`;
-    menu.style.top = `${e.clientY}px`;
-    menu.style.zIndex = "1000";
-    menu.style.maxHeight = "300px";
-    menu.style.overflowY = "auto";
-
-    for (const task of otherTasks) {
-      const item = menu.createDiv({ cls: "tab-context-menu-item" });
-      item.textContent = task.title;
-      item.title = task.path;
-      item.addEventListener("click", () => {
-        menu.remove();
-        this.moveTabToTask(tabIndex, task);
-      });
-    }
-
-    document.body.appendChild(menu);
-    const dismiss = (ev: Event) => {
-      if (!menu.contains(ev.target as Node)) {
-        menu.remove();
-        document.removeEventListener("click", dismiss, true);
-        document.removeEventListener("contextmenu", dismiss, true);
-      }
-    };
-    setTimeout(() => {
-      document.addEventListener("click", dismiss, true);
-      document.addEventListener("contextmenu", dismiss, true);
-    }, 0);
+    new ContextMenu(items, e.clientX, e.clientY, { title: "Move to task" });
   }
 
   private moveTabToTask(tabIndex: number, targetTask: TaskFile): void {

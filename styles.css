@@ -668,19 +668,19 @@
 .terminal-tab.tab-claude-waiting::after {
   content: "";
   position: absolute;
-  top: 0;
+  left: 0;
   right: 0;
   bottom: 0;
-  width: 50%;
-  background: linear-gradient(to right, transparent, rgba(245, 158, 11, 0.5));
+  height: 100%;
+  background: linear-gradient(to top, rgba(245, 158, 11, 0.5), rgba(245, 158, 11, 0.2));
   animation: waiting-glow 2s ease-in-out infinite;
   pointer-events: none;
   z-index: 1;
-  border-radius: 0 4px 0 0;
+  border-radius: 0 0 0 0;
 }
 
 .terminal-tab:not(.active) {
-  opacity: 0.6;
+  opacity: 1;
 }
 
 .terminal-tab.dragging {
