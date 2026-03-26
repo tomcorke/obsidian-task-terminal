@@ -466,7 +466,7 @@ export class TerminalTab {
     // Resume state tracking for Claude sessions.
     // Suppress "active" detection for 5s to prevent stale xterm buffer
     // content from causing a false active flash on all cards after reload.
-    tab._suppressActiveUntil = Date.now() + 5000;
+    tab._suppressActiveUntil = Date.now() + 2000;
     tab.startStateTracking();
 
     return tab;
