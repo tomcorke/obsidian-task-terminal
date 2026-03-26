@@ -492,8 +492,7 @@ export class TerminalPanel {
       requestAnimationFrame(() => this.enterTabRename(tabIndex));
     });
 
-    const isAgent = tabs[tabIndex].session.label.toLowerCase().startsWith("agent");
-    if (isAgent) {
+    if (tabs[tabIndex].isClaudeSession) {
       const restartItem = menu.createDiv({ cls: "tab-context-menu-item", text: "Restart Task Agent" });
       restartItem.addEventListener("click", () => {
         menu.remove();
