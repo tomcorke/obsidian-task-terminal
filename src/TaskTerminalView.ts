@@ -146,6 +146,19 @@ export class TaskTerminalView extends ItemView {
     this.registerEvent(
       this.app.vault.on("rename", (file, oldPath) => {
         if (this.parser.isTaskFile(file.path) || this.parser.isTaskFile(oldPath)) {
+          // Update stored task order so the renamed file keeps its position
+          let orderChanged = false;
+          for (const col of Object.keys(this.plugin.taskOrder)) {
+            const paths = this.plugin.taskOrder[col];
+            const idx = paths.indexOf(oldPath);
+            if (idx !== -1) {
+              paths[idx] = file.path;
+              orderChanged = true;
+            }
+          }
+          if (orderChanged) {
+            this.plugin.saveTaskOrder();
+          }
           this.debouncedRefresh();
         }
       })
