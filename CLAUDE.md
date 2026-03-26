@@ -25,12 +25,15 @@ Commit each discrete change to git individually with a clear message. Do not bat
 
 Source is in `src/`. Key files:
 - `main.ts` - plugin entry, settings, view registration
-- `TaskTerminalView.ts` - ItemView subclass, split layout, resize divider
-- `KanbanBoard.ts` - four-column board with HTML5 drag-and-drop
-- `TaskCard.ts` - card rendering
-- `ContextMenu.ts` - right-click context menu for task cards
-- `TerminalPanel.ts` - tab bar + terminal container management
-- `TerminalTab.ts` - xterm.js terminal + Python PTY wrapper spawn
+- `TaskTerminalView.ts` - ItemView subclass, 3-column split layout (task list, detail, terminal)
+- `TaskListPanel.ts` - vertical task list grouped by state, Claude state indicators on cards
+- `TaskDetailPanel.ts` - native Obsidian MarkdownView editor for selected task
+- `TaskCard.ts` - card rendering (title, source badge, score, AI badge, goals)
+- `ContextMenu.ts` - right-click context menu for task cards (move, copy, etc.)
+- `PromptBox.ts` - prompt input box component
+- `SessionStore.ts` - persists/restores terminal sessions across hot reloads
+- `TerminalPanel.ts` - tab bar + terminal container management per task
+- `TerminalTab.ts` - xterm.js terminal + Python PTY wrapper spawn + Claude state detection
 - `pty-wrapper.py` - Python PTY allocator (pty.fork/openpty), proxies I/O, handles resize
 - `TaskParser.ts` - parse frontmatter via MetadataCache
 - `TaskMover.ts` - state transitions (move file, update frontmatter/tags/activity log)
