@@ -331,6 +331,16 @@ export class TerminalPanel {
         this.closeTab(i);
       });
 
+      // Context menu for task agent tabs
+      const label = tabs[i].session.label.toLowerCase();
+      if (label.startsWith("agent")) {
+        tabEl.addEventListener("contextmenu", (e) => {
+          e.preventDefault();
+          e.stopPropagation();
+          this.showTabContextMenu(e, i);
+        });
+      }
+
       tabEl.addEventListener("click", () => this.switchToTab(i));
     }
 
@@ -460,6 +470,87 @@ export class TerminalPanel {
     if (hasActive) return "active";
     if (hasIdle) return "idle";
     return "inactive";
+  }
+
+  private showTabContextMenu(e: MouseEvent, tabIndex: number): void {
+    if (!this.activeTask) return;
+    const tabs = this.sessions.get(this.activeTask.path) || [];
+    if (tabIndex < 0 || tabIndex >= tabs.length) return;
+
+    // Remove any existing context menu
+    document.querySelector(".tab-context-menu")?.remove();
+
+    const menu = document.createElement("div");
+    menu.className = "tab-context-menu";
+    menu.style.position = "fixed";
+    menu.style.left = `${e.clientX}px`;
+    menu.style.top = `${e.clientY}px`;
+    menu.style.zIndex = "1000";
+
+    const item = menu.createDiv({ cls: "tab-context-menu-item", text: "Restart Task Agent" });
+    item.addEventListener("click", () => {
+      menu.remove();
+      this.restartTaskAgent(tabIndex);
+    });
+
+    document.body.appendChild(menu);
+    const dismiss = (ev: Event) => {
+      if (!menu.contains(ev.target as Node)) {
+        menu.remove();
+        document.removeEventListener("click", dismiss, true);
+        document.removeEventListener("contextmenu", dismiss, true);
+      }
+    };
+    setTimeout(() => {
+      document.addEventListener("click", dismiss, true);
+      document.addEventListener("contextmenu", dismiss, true);
+    }, 0);
+  }
+
+  private restartTaskAgent(tabIndex: number): void {
+    if (!this.activeTask) return;
+    const task = this.activeTask;
+    const tabs = this.sessions.get(task.path) || [];
+    if (tabIndex < 0 || tabIndex >= tabs.length) return;
+
+    const oldLabel = tabs[tabIndex].session.label;
+
+    // Dispose the old tab
+    tabs[tabIndex].dispose();
+    tabs.splice(tabIndex, 1);
+
+    // Create new task agent tab
+    const prompt = this.buildTaskPrompt(task);
+    const cwd = this.settings.defaultTerminalCwd || this.vaultPath;
+    const newTab = new TerminalTab(
+      this.terminalWrapperEl,
+      this.settings.defaultShell,
+      cwd,
+      oldLabel,
+      task.path,
+      undefined,
+      [...this.getClaudeBaseArgs(), prompt]
+    );
+    newTab.onLabelChange = () => {
+      if (this.activeTask?.path === task.path) this.renderTabBar();
+    };
+    newTab.onProcessExit = () => {
+      const idx = tabs.indexOf(newTab);
+      if (idx !== -1) this.closeTab(idx);
+    };
+    newTab.onStateChange = () => {
+      this.onClaudeStateChange?.(task.path, this.getClaudeState(task.path));
+    };
+
+    // Insert at the same position
+    tabs.splice(tabIndex, 0, newTab);
+
+    // Show it and switch to it
+    this.hideAllTerminals();
+    newTab.show();
+    this.activeTabIndex = tabIndex;
+    this.renderTabBar();
+    this.onSessionChange?.();
   }
 
   /** Return the count of shell and Claude tabs for a given task path */
