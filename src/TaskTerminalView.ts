@@ -17,6 +17,7 @@ export class TaskTerminalView extends ItemView {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private filterTimer: ReturnType<typeof setTimeout> | null = null;
   private containerObserver: ResizeObserver | null = null;
+  _isReloading = false;
 
   constructor(leaf: WorkspaceLeaf, private plugin: TaskTerminalPlugin) {
     super(leaf);
@@ -118,6 +119,12 @@ export class TaskTerminalView extends ItemView {
     );
 
     await this.taskList.render();
+
+    // Restore previously active task after reload
+    const recoveredPath = this.terminalPanel.getRecoveredTaskPath();
+    if (recoveredPath) {
+      this.taskList.selectTaskByPath(recoveredPath);
+    }
 
     // Setup resizer
     this.setupResizer(divider, leftPanel, 200);
@@ -238,11 +245,22 @@ export class TaskTerminalView extends ItemView {
     });
   }
 
+  /** Stash terminal sessions for a soft reload (keeps processes alive). */
+  prepareReload(): void {
+    this._isReloading = true;
+    this.terminalPanel?.stashAll();
+  }
+
   async onClose(): Promise<void> {
     if (this.debounceTimer) clearTimeout(this.debounceTimer);
     if (this.filterTimer) clearTimeout(this.filterTimer);
     this.containerObserver?.disconnect();
     this.taskDetail?.unload();
-    this.terminalPanel?.disposeAll();
+    if (this._isReloading) {
+      // Sessions already stashed - don't kill processes
+      console.log("[task-terminal] Reload: skipping terminal disposal");
+    } else {
+      this.terminalPanel?.disposeAll();
+    }
   }
 }

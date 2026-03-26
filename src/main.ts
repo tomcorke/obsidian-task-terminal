@@ -5,7 +5,6 @@ import {
   DEFAULT_SETTINGS,
 } from "./types";
 import { TaskTerminalView } from "./TaskTerminalView";
-
 /** Per-section ordered list of task paths. Paths not in the list go to the end (default sort). */
 export type TaskOrder = Record<string, string[]>;
 
@@ -31,6 +30,12 @@ export default class TaskTerminalPlugin extends Plugin {
       callback: () => this.activateView(),
     });
 
+    this.addCommand({
+      id: "reload-plugin",
+      name: "Reload Plugin (preserve terminals)",
+      callback: () => this.hotReload(),
+    });
+
     this.addSettingTab(new TaskTerminalSettingTab(this.app, this));
   }
 
@@ -48,6 +53,27 @@ export default class TaskTerminalPlugin extends Plugin {
     }
 
     workspace.revealLeaf(leaf);
+  }
+
+  /**
+   * Hot-reload: stash terminal sessions, then disable+enable the plugin.
+   * Sessions survive because they're stored on window.__taskTerminalStore.
+   */
+  private async hotReload(): Promise<void> {
+    console.log("[task-terminal] Hot reload: stashing sessions...");
+
+    // Find the active view and stash its sessions
+    const leaf = this.app.workspace.getLeavesOfType(VIEW_TYPE_TASK_TERMINAL)[0];
+    if (leaf) {
+      const view = leaf.view as TaskTerminalView;
+      view.prepareReload();
+    }
+
+    // Disable and re-enable the plugin
+    const plugins = (this.app as any).plugins;
+    await plugins.disablePlugin("task-terminal");
+    await plugins.enablePlugin("task-terminal");
+    console.log("[task-terminal] Hot reload complete");
   }
 
   onunload(): void {

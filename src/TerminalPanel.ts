@@ -1,5 +1,40 @@
 import type { TaskFile, TaskTerminalSettings } from "./types";
 import { TerminalTab } from "./TerminalTab";
+import { SessionStore } from "./SessionStore";
+
+/**
+ * Resolve a command name to an absolute path. Electron's process.env.PATH
+ * may not include shell-profile dirs like ~/.local/bin, so commands like
+ * `claude` fail with execvp ENOENT when spawned via the PTY wrapper.
+ */
+function resolveCommand(cmd: string): string {
+  if (cmd.startsWith("/")) return cmd;
+  try {
+    const cp = (window.require || require)("child_process") as typeof import("child_process");
+    // Use login shell to resolve the command, picking up profile PATH
+    const result = cp.spawnSync("/bin/zsh", ["-l", "-c", `which ${cmd}`], {
+      timeout: 3000,
+      encoding: "utf-8",
+    });
+    const resolved = result.stdout?.trim();
+    if (resolved && resolved.startsWith("/")) {
+      return resolved;
+    }
+  } catch { /* fall through */ }
+  // Fallback: check common locations
+  const home = process.env.HOME || "";
+  const fs = (window.require || require)("fs") as typeof import("fs");
+  const candidates = [
+    `${home}/.local/bin/${cmd}`,
+    `${home}/.claude/local/${cmd}`,
+    `/usr/local/bin/${cmd}`,
+    `/opt/homebrew/bin/${cmd}`,
+  ];
+  for (const p of candidates) {
+    try { if (fs.existsSync(p)) return p; } catch { /* ignore */ }
+  }
+  return cmd;
+}
 
 /** Claude sparkle logomark as inline SVG */
 function createClaudeLogo(size = 14): SVGSVGElement {
@@ -22,6 +57,8 @@ export class TerminalPanel {
   private sessions: Map<string, TerminalTab[]> = new Map();
   private activeTask: TaskFile | null = null;
   private activeTabIndex = 0;
+  private recoveredTaskPath: string | null = null;
+  private recoveredTabIndex = 0;
   private tabBarEl: HTMLElement;
   private taskHeaderEl: HTMLElement;
   private terminalWrapperEl: HTMLElement;
@@ -55,7 +92,35 @@ export class TerminalPanel {
       text: "Select a task from the kanban board to manage its terminals",
     });
 
+    // Recover sessions from a previous reload
+    const stored = SessionStore.retrieve();
+    if (stored) {
+      for (const [taskPath, storedSessions] of stored.sessions) {
+        const tabs: TerminalTab[] = [];
+        for (const ss of storedSessions) {
+          const tab = TerminalTab.fromStored(ss, this.terminalWrapperEl);
+          tab.onLabelChange = () => {
+            if (this.activeTask?.path === taskPath) this.renderTabBar();
+          };
+          tab.hide();
+          tabs.push(tab);
+        }
+        this.sessions.set(taskPath, tabs);
+      }
+      this.activeTabIndex = stored.activeTabIndex;
+      this.recoveredTaskPath = stored.activeTaskPath;
+      this.recoveredTabIndex = stored.activeTabIndex;
+      console.log("[task-terminal] Recovered", this.sessions.size, "task groups");
+    }
+
     this.renderTabBar();
+  }
+
+  /** Return recovered active task path from a previous reload (consumed once). */
+  getRecoveredTaskPath(): string | null {
+    const path = this.recoveredTaskPath;
+    this.recoveredTaskPath = null;
+    return path;
   }
 
   setTask(task: TaskFile | null): void {
@@ -84,8 +149,12 @@ export class TerminalPanel {
     // Show existing terminals or show empty state
     const tabs = this.sessions.get(task.path) || [];
     if (tabs.length > 0) {
-      tabs[0].show();
-      this.activeTabIndex = 0;
+      // Restore recovered tab index if this is a reload re-selection
+      const targetIdx = (this.recoveredTabIndex > 0 && this.recoveredTabIndex < tabs.length)
+        ? this.recoveredTabIndex : 0;
+      this.recoveredTabIndex = 0;
+      tabs[targetIdx].show();
+      this.activeTabIndex = targetIdx;
     }
 
     this.renderTabBar();
@@ -289,6 +358,11 @@ export class TerminalPanel {
       tabEl.addEventListener("click", () => this.switchToTab(i));
     }
 
+    // Spacer between session tabs and new-tab buttons
+    const spacer = this.tabBarEl.createDiv({ cls: "terminal-tab-spacer" });
+    spacer.style.width = "12px";
+    spacer.style.flexShrink = "0";
+
     // New terminal button
     const newBtn = this.tabBarEl.createDiv({
       cls: "terminal-tab-btn",
@@ -298,8 +372,9 @@ export class TerminalPanel {
 
     // Build base claude args with plugin dirs
     const pluginBase = (process.env.HOME || "") + "/working/claude-sandbox/plugins";
+    const claudeCmd = resolveCommand(this.settings.claudeCommand);
     const claudeBaseArgs = [
-      this.settings.claudeCommand,
+      claudeCmd,
       "--dangerously-skip-permissions",
       "--plugin-dir", pluginBase + "/tc-services",
       "--plugin-dir", pluginBase + "/tc-tools",
@@ -412,6 +487,24 @@ export class TerminalPanel {
     if (this.activeTask && this.activeTask.path === oldPath) {
       this.activeTask = { ...this.activeTask, path: newPath };
     }
+  }
+
+  /**
+   * Stash all sessions into the global store for reload recovery.
+   * Does NOT kill processes or dispose terminals.
+   */
+  stashAll(): void {
+    const stashMap = new Map<string, import("./SessionStore").StoredSession[]>();
+    for (const [taskPath, tabs] of this.sessions) {
+      stashMap.set(taskPath, tabs.map(t => t.stash()));
+    }
+    SessionStore.stash(
+      stashMap,
+      this.activeTask?.path || null,
+      this.activeTabIndex
+    );
+    // Clear local references without disposing
+    this.sessions.clear();
   }
 
   disposeAll(): void {

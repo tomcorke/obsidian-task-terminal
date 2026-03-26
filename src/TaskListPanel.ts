@@ -377,6 +377,14 @@ export class TaskListPanel {
     this.onTaskSelect(task);
   }
 
+  /** Programmatically select a task by its vault-relative path. Returns true if found. */
+  selectTaskByPath(path: string): boolean {
+    const card = this.cards.get(path);
+    if (!card) return false;
+    this.selectTask(card.getTask());
+    return true;
+  }
+
   setFilter(term: string): void {
     this.filterTerm = term.toLowerCase().trim();
     this.applyFilter();

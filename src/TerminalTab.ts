@@ -2,6 +2,7 @@ import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import type { ChildProcess } from "child_process";
 import type { TerminalSession } from "./types";
+import type { StoredSession } from "./SessionStore";
 import { StringDecoder } from "string_decoder";
 
 // Use dynamic require to get child_process at runtime in Electron
@@ -68,6 +69,7 @@ export class TerminalTab {
   private fitAddon: FitAddon;
   private resizeObserver: ResizeObserver;
   private _documentListeners: { event: string; handler: EventListener }[] = [];
+  private cwd: string = "";
 
   constructor(
     private parentEl: HTMLElement,
@@ -371,6 +373,88 @@ export class TerminalTab {
     requestAnimationFrame(() => {
       try { this.fitAddon.fit(); } catch { /* ignore */ }
     });
+  }
+
+  /**
+   * Extract live state for reload persistence. Does NOT dispose anything.
+   * The returned StoredSession holds references to live objects (Terminal, process, DOM).
+   */
+  stash(): StoredSession {
+    return {
+      id: this.session.id,
+      taskPath: this.session.taskPath,
+      label: this.session.label,
+      terminal: this.session.terminal,
+      fitAddon: this.fitAddon,
+      containerEl: this.session.containerEl,
+      process: this.session.process,
+      documentListeners: [...this._documentListeners],
+      resizeObserver: this.resizeObserver,
+    };
+  }
+
+  /**
+   * Create a TerminalTab wrapping an existing stored session (after reload).
+   * Re-attaches DOM, re-registers keyboard listeners, but does NOT re-spawn a process.
+   */
+  static fromStored(stored: StoredSession, parentEl: HTMLElement): TerminalTab {
+    injectXtermCss();
+
+    const tab = Object.create(TerminalTab.prototype) as TerminalTab;
+    tab.fitAddon = stored.fitAddon;
+    tab._documentListeners = [];
+
+    // Re-attach container DOM to the new parent
+    parentEl.appendChild(stored.containerEl);
+
+    // Re-register keyboard interception on container (bubble-phase)
+    stored.containerEl.addEventListener("keydown", (e: KeyboardEvent) => {
+      e.stopPropagation();
+    }, false);
+    stored.containerEl.addEventListener("keyup", (e: KeyboardEvent) => {
+      e.stopPropagation();
+    }, false);
+
+    // Re-register capture-phase keyboard interception
+    const textareaEl = stored.containerEl.querySelector(".xterm-helper-textarea") as HTMLTextAreaElement | null;
+    const captureHandler = (e: KeyboardEvent) => {
+      if (!textareaEl || document.activeElement !== textareaEl) return;
+      const dominated =
+        (e.key === "Enter" && e.shiftKey) ||
+        (e.altKey && (e.key === "ArrowLeft" || e.key === "ArrowRight")) ||
+        (e.altKey && e.key === "Backspace") ||
+        (e.altKey && e.key === "d");
+      if (dominated) e.stopPropagation();
+    };
+    document.addEventListener("keydown", captureHandler, true);
+    tab._documentListeners = [{ event: "keydown", handler: captureHandler as EventListener }];
+
+    // Click-to-focus
+    stored.containerEl.addEventListener("click", () => {
+      stored.terminal.focus();
+    });
+
+    // Re-attach resize observer
+    stored.resizeObserver.disconnect();
+    tab.resizeObserver = new ResizeObserver(() => {
+      if (stored.containerEl.hasClass("hidden")) return;
+      requestAnimationFrame(() => {
+        if (stored.containerEl.hasClass("hidden")) return;
+        try { tab.fitAddon.fit(); } catch { /* ignore */ }
+      });
+    });
+    tab.resizeObserver.observe(stored.containerEl);
+
+    tab.session = {
+      id: stored.id,
+      taskPath: stored.taskPath,
+      label: stored.label,
+      process: stored.process,
+      terminal: stored.terminal,
+      containerEl: stored.containerEl,
+    };
+
+    return tab;
   }
 
   dispose(): void {

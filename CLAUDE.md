@@ -6,11 +6,16 @@ Obsidian plugin: kanban task board (left) with per-task tabbed xterm.js terminal
 
 - **Build**: `npm run build` (production) or `npm run dev` (watch mode)
 - **Deploy**: esbuild copies output to `~/working/obsidian/test-vault/Test/.obsidian/plugins/task-terminal/`
-- **Reload plugin in Obsidian**: disable+enable, NOT Cmd+R. Use the CDP script (`node cdp.js`) for programmatic reload.
+- **Hot reload**: In watch mode (`npm run dev`), esbuild triggers hot reload via CDP after each rebuild. Existing terminal sessions are preserved. Requires Obsidian to be launched with `open -a Obsidian --args --remote-debugging-port=9222`.
 
 After every code change:
-1. Run `npm run build`
-2. Reload the plugin in Obsidian (via CDP or manually)
+1. Use `npm run dev` (watch mode) - auto-builds and hot-reloads on save
+2. Or `npm run build` then manually trigger reload
+
+**IMPORTANT**: Never reload via raw `app.plugins.disablePlugin/enablePlugin` or Cmd+R - these destroy terminal sessions. Always use one of:
+- `npm run dev` watch mode with CDP auto-reload - preferred
+- Command palette: "Task Terminal: Reload Plugin (preserve terminals)"
+- CDP: `node cdp.js "app.commands.executeCommandById('task-terminal:reload-plugin')"`
 
 ## Commit discipline
 

@@ -71,29 +71,40 @@ export class TaskDetailPanel {
       false // new leaf to the right
     );
 
-    // Set 65:35 split ratio (task-terminal : editor)
-    // Defer so Obsidian's layout pass completes first
-    setTimeout(() => this.applySplitRatio(65, 35), 100);
+    // Set the editor leaf to the minimum width that avoids text wrapping.
+    // Obsidian's readable line width is controlled by --file-line-width (default 700px).
+    // We read it at runtime so we respect the user's theme/settings.
+    // Defer so Obsidian's layout pass completes first.
+    setTimeout(() => this.applyMinEditorWidth(), 100);
   }
 
-  private applySplitRatio(leftPct: number, rightPct: number): void {
+  private applyMinEditorWidth(): void {
     if (!this.editorLeaf) return;
     const parent = this.editorLeaf.parent as any;
     if (!parent || !parent.children || parent.children.length < 2) return;
 
-    // Obsidian split children have a containerEl we can style with flex
     const leftChild = parent.children[0];
     const rightChild = parent.children[1];
 
+    // Read Obsidian's readable line width from CSS variable, fallback 700px
+    const rootStyle = getComputedStyle(document.body);
+    const lineWidthRaw = rootStyle.getPropertyValue("--file-line-width").trim();
+    const lineWidth = parseInt(lineWidthRaw, 10) || 700;
+
+    // Add padding for gutters, scrollbar, and editor chrome
+    const editorWidth = lineWidth + 80;
+
+    // Right child (editor): fixed width, no grow
+    if (rightChild?.containerEl) {
+      rightChild.containerEl.style.flexGrow = "0";
+      rightChild.containerEl.style.flexShrink = "0";
+      rightChild.containerEl.style.flexBasis = `${editorWidth}px`;
+    }
+    // Left child (task-terminal): fill remaining space
     if (leftChild?.containerEl) {
-      leftChild.containerEl.style.flexGrow = String(leftPct);
+      leftChild.containerEl.style.flexGrow = "1";
       leftChild.containerEl.style.flexShrink = "1";
       leftChild.containerEl.style.flexBasis = "0%";
-    }
-    if (rightChild?.containerEl) {
-      rightChild.containerEl.style.flexGrow = String(rightPct);
-      rightChild.containerEl.style.flexShrink = "1";
-      rightChild.containerEl.style.flexBasis = "0%";
     }
   }
 
