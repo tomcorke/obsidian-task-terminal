@@ -612,10 +612,10 @@ export class TerminalTab {
 
     // Check for waiting patterns first (highest priority).
     // Run even if screenLines is empty - _looksLikeWaiting also checks _recentCleanLines.
-    // Check both the screen buffer (reliable, shows current UI) and recent
-    // output lines (catches patterns that may have scrolled off screen).
+    // But suppress waiting if the tab is currently visible - the user can already see it
+    // and interact directly.
     if (this._looksLikeWaiting(screenLines)) {
-      this._setClaudeState("waiting");
+      this._setClaudeState(this.isVisible ? "idle" : "waiting");
       return;
     }
 
@@ -683,6 +683,13 @@ export class TerminalTab {
     }
 
     return false;
+  }
+
+  /** Clear the waiting state (e.g. when the user activates this tab to respond). */
+  clearWaiting(): void {
+    if (this._claudeState === "waiting") {
+      this._setClaudeState("idle");
+    }
   }
 
   private _setClaudeState(state: ClaudeState): void {

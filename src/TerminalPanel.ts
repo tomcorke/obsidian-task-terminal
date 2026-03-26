@@ -144,6 +144,7 @@ export class TerminalPanel {
         }
       }
       tabs[targetIdx].show();
+      tabs[targetIdx].clearWaiting();
       this.activeTabIndex = targetIdx;
     }
 
@@ -245,6 +246,7 @@ export class TerminalPanel {
 
     this.hideAllTerminals();
     tabs[index].show();
+    tabs[index].clearWaiting();
     this.activeTabIndex = index;
     this.renderTabBar();
   }
