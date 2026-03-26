@@ -229,7 +229,7 @@ export class TaskCard {
       action: () => this.onDeleteTask?.(this.task),
     });
 
-    new ContextMenu(items, x, y);
+    new ContextMenu(items, x, y, { title: this.task.title });
   }
 
   setSelected(selected: boolean): void {

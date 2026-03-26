@@ -15,13 +15,22 @@ function isSeparator(item: MenuItem): item is MenuSeparator {
   return "separator" in item;
 }
 
+export interface ContextMenuOptions {
+  title?: string;
+}
+
 export class ContextMenu {
   private el: HTMLElement;
   private cleanup: (() => void) | null = null;
 
-  constructor(items: MenuItem[], x: number, y: number) {
+  constructor(items: MenuItem[], x: number, y: number, options?: ContextMenuOptions) {
     this.el = document.createElement("div");
     this.el.addClass("task-context-menu");
+
+    if (options?.title) {
+      const header = this.el.createDiv({ cls: "task-context-menu-title" });
+      header.textContent = options.title;
+    }
 
     for (const item of items) {
       if (isSeparator(item)) {

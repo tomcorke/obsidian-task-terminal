@@ -465,26 +465,23 @@
 
 /* Resume badge - shown when a persisted session can be resumed */
 .task-card-resume-badge {
-  min-width: 16px;
-  height: 16px;
-  line-height: 16px;
+  width: 20px;
+  height: 20px;
+  line-height: 20px;
   text-align: center;
   font-size: 12px;
   font-weight: 600;
-  border-radius: 8px;
-  color: var(--text-muted);
-  background: var(--background-modifier-border);
-  padding: 0 3px;
+  border-radius: 3px;
+  color: var(--text-on-accent);
+  background: var(--interactive-accent);
+  padding: 0;
   cursor: pointer;
-  opacity: 0.7;
+  opacity: 0.85;
   transition: opacity 0.15s;
 }
 
 .task-card-resume-badge:hover {
   opacity: 1;
-  color: var(--text-normal);
-  background: var(--interactive-accent);
-  color: var(--text-on-accent);
 }
 
 .task-card-session-badge.badge-mixed {
@@ -847,6 +844,19 @@
   padding: 4px 0;
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.3);
   font-size: 13px;
+}
+
+.task-context-menu-title {
+  padding: 6px 14px 4px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 250px;
+  border-bottom: 1px solid var(--background-modifier-border);
+  margin-bottom: 4px;
 }
 
 .task-context-menu-item {
