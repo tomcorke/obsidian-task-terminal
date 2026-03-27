@@ -169,7 +169,7 @@ export class TerminalTab {
     let proc: ChildProcess | null = null;
 
     const spawnWithFit = () => {
-      try { this.fitAddon.fit(); } catch { /* ignore */ }
+      this.safeFit();
       if (proc) return; // Already spawned
 
       const cols = terminal.cols || 80;
@@ -199,16 +199,12 @@ export class TerminalTab {
       }
     });
 
-    // Resize observer - skip fit when hidden to avoid zero-dimension issues
+    // Resize observer - skip fit when hidden or too narrow
     this.resizeObserver = new ResizeObserver(() => {
       if (containerEl.hasClass("hidden")) return;
       requestAnimationFrame(() => {
         if (containerEl.hasClass("hidden")) return;
-        try {
-          this.fitAddon.fit();
-        } catch {
-          // ignore fit errors during cleanup
-        }
+        this.safeFit();
       });
     });
     this.resizeObserver.observe(containerEl);
@@ -364,7 +360,7 @@ export class TerminalTab {
     // second frame has correct dimensions for fitAddon to measure.
     requestAnimationFrame(() => {
       requestAnimationFrame(() => {
-        this.fitAddon.fit();
+        this.safeFit();
         this.session.terminal.scrollToBottom();
         this.session.terminal.focus();
       });
@@ -378,8 +374,24 @@ export class TerminalTab {
   refit(): void {
     if (this.session.containerEl.hasClass("hidden")) return;
     requestAnimationFrame(() => {
-      try { this.fitAddon.fit(); } catch { /* ignore */ }
+      this.safeFit();
     });
+  }
+
+  // Minimum container width (px) below which we skip fitting.
+  // Prevents terminal from reflowing to a tiny column count when the
+  // plugin view is momentarily narrow (e.g. switching between plugins).
+  private static MIN_FIT_WIDTH = 200;
+
+  /** Call fitAddon.fit() only if the container is wide enough.
+   *  When the container is too narrow, the terminal keeps its last
+   *  good dimensions and content doesn't reflow. */
+  private safeFit(): void {
+    try {
+      const width = this.session.containerEl.clientWidth;
+      if (width < TerminalTab.MIN_FIT_WIDTH) return;
+      this.fitAddon.fit();
+    } catch { /* ignore fit errors during cleanup */ }
   }
 
   /**
@@ -442,13 +454,13 @@ export class TerminalTab {
     // Scroll-to-bottom button
     TerminalTab.attachScrollButton(stored.containerEl, stored.terminal);
 
-    // Re-attach resize observer
+    // Re-attach resize observer - skip fit when hidden or too narrow
     stored.resizeObserver.disconnect();
     tab.resizeObserver = new ResizeObserver(() => {
       if (stored.containerEl.hasClass("hidden")) return;
       requestAnimationFrame(() => {
         if (stored.containerEl.hasClass("hidden")) return;
-        try { tab.fitAddon.fit(); } catch { /* ignore */ }
+        tab.safeFit();
       });
     });
     tab.resizeObserver.observe(stored.containerEl);
