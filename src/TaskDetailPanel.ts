@@ -91,10 +91,16 @@ export class TaskDetailPanel {
     setTimeout(() => this.applyMinEditorWidth(), 100);
   }
 
+  // View types shipped with Obsidian core - anything else is a plugin view
+  private static readonly CORE_VIEW_TYPES = new Set([
+    "markdown", "empty", "graph", "localgraph", "canvas",
+    "pdf", "image", "audio", "video",
+  ]);
+
   /**
-   * Find the rightmost editor (markdown) leaf in the root split.
-   * Walks the workspace split tree right-to-left, returning the first
-   * markdown leaf found in the rightmost split that isn't our plugin view.
+   * Find the rightmost editor (markdown) leaf in the root split that is
+   * safe to reuse. Skips leaves that are pinned or share a tab group with
+   * plugin views (indicating another plugin manages that group).
    */
   private findRightmostEditorLeaf(): WorkspaceLeaf | null {
     const rootSplit = this.app.workspace.rootSplit;
@@ -104,12 +110,28 @@ export class TaskDetailPanel {
     const leaves: WorkspaceLeaf[] = [];
     this.collectLeaves(rootSplit, leaves);
 
-    // Walk right-to-left looking for a markdown (editor) leaf
+    // Walk right-to-left looking for a reusable markdown leaf
     for (let i = leaves.length - 1; i >= 0; i--) {
       const leaf = leaves[i];
-      if (leaf.view?.getViewType() === "markdown") {
-        return leaf;
+      if (leaf.view?.getViewType() !== "markdown") continue;
+
+      // Skip pinned tabs - the user explicitly pinned them
+      if ((leaf as any).pinned) continue;
+
+      // Check sibling tabs in the same tab group (leaf.parent).
+      // If any sibling is a plugin view, another plugin likely owns
+      // this tab group, so we should not commandeer it.
+      const tabGroup = (leaf as any).parent;
+      if (tabGroup?.children) {
+        const hasPluginSibling = tabGroup.children.some((sibling: any) => {
+          if (sibling === leaf) return false;
+          const type = sibling.view?.getViewType?.();
+          return type && !TaskDetailPanel.CORE_VIEW_TYPES.has(type);
+        });
+        if (hasPluginSibling) continue;
       }
+
+      return leaf;
     }
 
     return null;
