@@ -94,6 +94,9 @@ export class TerminalTab {
     claudeSessionId?: string | null
   ) {
     this.claudeSessionId = claudeSessionId || null;
+    // Set Claude session flag immediately so badge colors are correct
+    // even before startStateTracking runs (which is delayed by spawn timer)
+    this._isClaudeSession = !!this.claudeSessionId;
     // Expand ~ in cwd
     const home = process.env.HOME || process.env.USERPROFILE || "";
     if (cwd.startsWith("~/") || cwd === "~") {
@@ -466,6 +469,7 @@ export class TerminalTab {
     tab.resizeObserver.observe(stored.containerEl);
 
     tab.claudeSessionId = stored.claudeSessionId || null;
+    tab._isClaudeSession = !!tab.claudeSessionId;
     tab.session = {
       id: stored.id,
       taskPath: stored.taskPath,
