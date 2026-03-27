@@ -15,6 +15,9 @@ export class TaskDetailPanel {
   private placeholderEl: HTMLElement;
   private editorLeaf: WorkspaceLeaf | null = null;
   private ownerLeaf: WorkspaceLeaf;
+  // Track whether we created the leaf (true) or adopted an existing one (false).
+  // We only detach leaves we created - adopted leaves belong to the user.
+  private leafIsOwned = false;
 
   constructor(
     private containerEl: HTMLElement,
@@ -52,19 +55,29 @@ export class TaskDetailPanel {
   }
 
   private async ensureEditorLeaf(): Promise<void> {
-    // Check if our leaf is still alive
+    // Check if our managed leaf is still alive
     if (this.editorLeaf) {
       const found = this.app.workspace.getLeavesOfType("markdown")
         .some(l => l === this.editorLeaf);
       if (!found) {
         this.editorLeaf = null;
+        this.leafIsOwned = false;
       }
     }
 
     if (this.editorLeaf) return;
 
-    // Create a new leaf by splitting our owner leaf
-    // 'vertical' = side by side, and the new leaf appears to the right
+    // Before creating a new split, try to reuse an existing rightmost editor leaf.
+    // This avoids creating extra panes when the user already has an editor open.
+    const rightmostEditor = this.findRightmostEditorLeaf();
+    if (rightmostEditor) {
+      this.editorLeaf = rightmostEditor;
+      this.leafIsOwned = false;
+      return;
+    }
+
+    // No existing editor leaf to reuse - create one by splitting our owner leaf
+    this.leafIsOwned = true;
     this.editorLeaf = this.app.workspace.createLeafBySplit(
       this.ownerLeaf,
       "vertical",
@@ -76,6 +89,42 @@ export class TaskDetailPanel {
     // We read it at runtime so we respect the user's theme/settings.
     // Defer so Obsidian's layout pass completes first.
     setTimeout(() => this.applyMinEditorWidth(), 100);
+  }
+
+  /**
+   * Find the rightmost editor (markdown) leaf in the root split.
+   * Walks the workspace split tree right-to-left, returning the first
+   * markdown leaf found in the rightmost split that isn't our plugin view.
+   */
+  private findRightmostEditorLeaf(): WorkspaceLeaf | null {
+    const rootSplit = this.app.workspace.rootSplit;
+    if (!rootSplit) return null;
+
+    // Collect all leaves from the root split in document order
+    const leaves: WorkspaceLeaf[] = [];
+    this.collectLeaves(rootSplit, leaves);
+
+    // Walk right-to-left looking for a markdown (editor) leaf
+    for (let i = leaves.length - 1; i >= 0; i--) {
+      const leaf = leaves[i];
+      if (leaf.view?.getViewType() === "markdown") {
+        return leaf;
+      }
+    }
+
+    return null;
+  }
+
+  /** Recursively collect all leaves from a workspace split in document order. */
+  private collectLeaves(node: any, result: WorkspaceLeaf[]): void {
+    if (node.children) {
+      for (const child of node.children) {
+        this.collectLeaves(child, result);
+      }
+    } else if (node.view) {
+      // This is a leaf
+      result.push(node as WorkspaceLeaf);
+    }
   }
 
   private applyMinEditorWidth(): void {
@@ -133,8 +182,12 @@ export class TaskDetailPanel {
 
   detachLeaf(): void {
     if (this.editorLeaf) {
-      this.editorLeaf.detach();
+      // Only detach leaves we created via split - leave adopted leaves intact
+      if (this.leafIsOwned) {
+        this.editorLeaf.detach();
+      }
       this.editorLeaf = null;
+      this.leafIsOwned = false;
     }
   }
 
